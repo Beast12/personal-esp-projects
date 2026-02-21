@@ -1,0 +1,382 @@
+esphome:
+  name: proxmox-panel
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# --- JC3248W535C_I hardware (QSPI + AXS15231) ---
+spi:
+  - type: quad
+    clk_pin: 47
+    data_pins: [21, 48, 40, 39]
+
+i2c:
+  - id: i2c_bus
+    sda: 4
+    scl: 8
+
+output:
+  - platform: ledc
+    id: gpio_backlight_pwm
+    pin: 1
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: gpio_backlight_pwm
+    restore_mode: ALWAYS_ON
+
+display:
+  - platform: qspi_dbi
+    id: lcd
+    dimensions:
+      width: 320
+      height: 480
+    rotation: 90
+    model: CUSTOM
+    data_rate: 40MHz
+    cs_pin:
+      number: 45
+      ignore_strapping_warning: true
+    draw_from_origin: true
+    update_interval: never
+    auto_clear_enabled: false
+
+touchscreen:
+  - platform: axs15231
+    id: touch
+    i2c_id: i2c_bus
+    address: 0x3B
+    update_interval: 50ms
+    touch_timeout: 50ms
+
+# Fonts
+font:
+  - file: "gfonts://Roboto"
+    id: f_title
+    size: 34
+  - file: "gfonts://Roboto Mono"
+    id: f_row
+    size: 20
+  - file: "gfonts://Roboto Mono"
+    id: f_small
+    size: 18
+
+# --- Home Assistant entities (from your dump) ---
+binary_sensor:
+  - platform: homeassistant
+    id: n1_up
+    entity_id: binary_sensor.node_proxmox_1_status
+  - platform: homeassistant
+    id: n2_up
+    entity_id: binary_sensor.node_proxmox_2_status
+  - platform: homeassistant
+    id: n3_up
+    entity_id: binary_sensor.node_proxmox_3_status
+  - platform: homeassistant
+    id: n4_up
+    entity_id: binary_sensor.node_proxmox_4_status
+  - platform: homeassistant
+    id: n5_up
+    entity_id: binary_sensor.node_proxmox_5_status
+
+  - platform: homeassistant
+    id: n1_updates_pending
+    entity_id: binary_sensor.node_proxmox_1_updates_packages
+  - platform: homeassistant
+    id: n2_updates_pending
+    entity_id: binary_sensor.node_proxmox_2_updates_packages
+  - platform: homeassistant
+    id: n3_updates_pending
+    entity_id: binary_sensor.node_proxmox_3_updates_packages
+  - platform: homeassistant
+    id: n4_updates_pending
+    entity_id: binary_sensor.node_proxmox_4_updates_packages
+  - platform: homeassistant
+    id: n5_updates_pending
+    entity_id: binary_sensor.node_proxmox_5_updates_packages
+
+  # Disk health: device_class=problem => ON means problem
+  - platform: homeassistant
+    id: d1_problem
+    entity_id: binary_sensor.disk_proxmox_1_ct1000p3pssd8_health
+  - platform: homeassistant
+    id: d1b_problem
+    entity_id: binary_sensor.disk_proxmox_1_samsung_ssd_990_pro_2tb_health
+  - platform: homeassistant
+    id: d2_problem
+    entity_id: binary_sensor.disk_proxmox_2_sk_hynix_bc501_hfm256gdjtng_8310a_health
+  - platform: homeassistant
+    id: d3_problem
+    entity_id: binary_sensor.disk_proxmox_3_kingston_sfyrs1000g_health
+  - platform: homeassistant
+    id: d4_problem
+    entity_id: binary_sensor.disk_proxmox_4_wdc_wds240g1g0b_00rc30_health
+  - platform: homeassistant
+    id: d5_problem
+    entity_id: binary_sensor.disk_proxmox_5_samsung_ssd_990_evo_2tb_health
+
+sensor:
+  - platform: homeassistant
+    id: n1_cpu
+    entity_id: sensor.node_proxmox_1_cpu_used
+  - platform: homeassistant
+    id: n2_cpu
+    entity_id: sensor.node_proxmox_2_cpu_used
+  - platform: homeassistant
+    id: n3_cpu
+    entity_id: sensor.node_proxmox_3_cpu_used
+  - platform: homeassistant
+    id: n4_cpu
+    entity_id: sensor.node_proxmox_4_cpu_used
+  - platform: homeassistant
+    id: n5_cpu
+    entity_id: sensor.node_proxmox_5_cpu_used
+
+  - platform: homeassistant
+    id: n1_ram
+    entity_id: sensor.node_proxmox_1_memory_used_percentage
+  - platform: homeassistant
+    id: n2_ram
+    entity_id: sensor.node_proxmox_2_memory_used_percentage
+  - platform: homeassistant
+    id: n3_ram
+    entity_id: sensor.node_proxmox_3_memory_used_percentage
+  - platform: homeassistant
+    id: n4_ram
+    entity_id: sensor.node_proxmox_4_memory_used_percentage
+  - platform: homeassistant
+    id: n5_ram
+    entity_id: sensor.node_proxmox_5_memory_used_percentage
+
+  - platform: homeassistant
+    id: n1_disk
+    entity_id: sensor.node_proxmox_1_disk_used_percentage
+  - platform: homeassistant
+    id: n2_disk
+    entity_id: sensor.node_proxmox_2_disk_used_percentage
+  - platform: homeassistant
+    id: n3_disk
+    entity_id: sensor.node_proxmox_3_disk_used_percentage
+  - platform: homeassistant
+    id: n4_disk
+    entity_id: sensor.node_proxmox_4_disk_used_percentage
+  - platform: homeassistant
+    id: n5_disk
+    entity_id: sensor.node_proxmox_5_disk_used_percentage
+
+  - platform: homeassistant
+    id: n1_vm
+    entity_id: sensor.node_proxmox_1_virtual_machines_running
+  - platform: homeassistant
+    id: n2_vm
+    entity_id: sensor.node_proxmox_2_virtual_machines_running
+  - platform: homeassistant
+    id: n3_vm
+    entity_id: sensor.node_proxmox_3_virtual_machines_running
+  - platform: homeassistant
+    id: n4_vm
+    entity_id: sensor.node_proxmox_4_virtual_machines_running
+  - platform: homeassistant
+    id: n5_vm
+    entity_id: sensor.node_proxmox_5_virtual_machines_running
+
+  - platform: homeassistant
+    id: n1_ct
+    entity_id: sensor.node_proxmox_1_containers_running
+  - platform: homeassistant
+    id: n2_ct
+    entity_id: sensor.node_proxmox_2_containers_running
+  - platform: homeassistant
+    id: n3_ct
+    entity_id: sensor.node_proxmox_3_containers_running
+  - platform: homeassistant
+    id: n4_ct
+    entity_id: sensor.node_proxmox_4_containers_running
+  - platform: homeassistant
+    id: n5_ct
+    entity_id: sensor.node_proxmox_5_containers_running
+
+# --- UI ---
+lvgl:
+  theme:
+    obj:
+      bg_color: 0x0B1320
+      text_color: 0xE6EDF7
+    button:
+      bg_color: 0x1A2332
+      text_color: 0xE6EDF7
+      border_color: 0xE57000
+      border_width: 1
+      radius: 8
+      shadow_width: 0
+  pages:
+    - id: main_page
+      widgets:
+        - obj:
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            bg_color: 0x0B1320
+            bg_opa: COVER
+            border_width: 0
+            radius: 0
+
+        - label:
+            id: title
+            text: "PROXMOX CLUSTER"
+            x: 12
+            y: 6
+            text_font: f_title
+            text_color: 0xE57000
+
+        - label:
+            id: global_status
+            text: "STATUS: OK"
+            x: 12
+            y: 46
+            text_font: f_row
+            text_color: 0x2ECC71
+
+        - label:
+            id: header_row
+            text: ""
+            x: 14
+            y: 80
+            text_font: f_row
+            text_color: 0x5FA8FF
+
+        - label:
+            id: row1
+            text: "proxmox-1  --    --    --     -   -"
+            x: 12
+            y: 104
+            text_font: f_row
+            text_color: 0xE6EDF7
+
+        - label:
+            id: row2
+            text: "proxmox-2  --    --    --     -   -"
+            x: 12
+            y: 134
+            text_font: f_row
+            text_color: 0xE6EDF7
+
+        - label:
+            id: row3
+            text: "proxmox-3  --    --    --     -   -"
+            x: 12
+            y: 164
+            text_font: f_row
+            text_color: 0xE6EDF7
+
+        - label:
+            id: row4
+            text: "proxmox-4  --    --    --     -   -"
+            x: 12
+            y: 194
+            text_font: f_row
+            text_color: 0xE6EDF7
+
+        - label:
+            id: row5
+            text: "proxmox-5  --    --    --     -   -"
+            x: 12
+            y: 224
+            text_font: f_row
+            text_color: 0xE6EDF7
+
+        - label:
+            id: legend
+            text: "OK=all nodes up, no disk problems"
+            x: 12
+            y: 280
+            text_font: f_small
+            text_color: 0x8AA0B8
+# --- Refresh loop ---
+interval:
+  - interval: 5s
+    then:
+      - lambda: |-
+          auto fmt_pct = [](float v) {
+            if (v != v) return std::string("--");
+            char b[8];
+            snprintf(b, sizeof(b), "%2.0f%%", v);
+            return std::string(b);
+          };
+          auto fmt_i = [](float v) {
+            if (v != v) return std::string("-");
+            char b[8];
+            snprintf(b, sizeof(b), "%d", (int)(v + 0.5f));
+            return std::string(b);
+          };
+
+          auto row = [&](const char* name, bool up, float cpu, float ram, float disk, float vm, float ct) {
+            // Prefix: up/down marker
+            const char* mark = up ? " " : "!";
+            char line[64];
+            // fixed spacing with monospace font for clean column alignment
+            snprintf(line, sizeof(line), "%s%-10s %5s %5s %5s %3s %3s",
+                     mark, name,
+                     fmt_pct(cpu).c_str(),
+                     fmt_pct(ram).c_str(),
+                     fmt_pct(disk).c_str(),
+                     fmt_i(vm).c_str(),
+                     fmt_i(ct).c_str());
+            return std::string(line);
+          };
+
+          char header[64];
+          snprintf(header, sizeof(header), "%s%-10s %5s %5s %5s %3s %3s", " ", "NODE", "CPU", "RAM", "DISK", "VM", "CT");
+          lv_label_set_text(id(header_row), header);
+
+          lv_label_set_text(id(row1), row("proxmox-1", id(n1_up).state, id(n1_cpu).state, id(n1_ram).state, id(n1_disk).state, id(n1_vm).state, id(n1_ct).state).c_str());
+          lv_label_set_text(id(row2), row("proxmox-2", id(n2_up).state, id(n2_cpu).state, id(n2_ram).state, id(n2_disk).state, id(n2_vm).state, id(n2_ct).state).c_str());
+          lv_label_set_text(id(row3), row("proxmox-3", id(n3_up).state, id(n3_cpu).state, id(n3_ram).state, id(n3_disk).state, id(n3_vm).state, id(n3_ct).state).c_str());
+          lv_label_set_text(id(row4), row("proxmox-4", id(n4_up).state, id(n4_cpu).state, id(n4_ram).state, id(n4_disk).state, id(n4_vm).state, id(n4_ct).state).c_str());
+          lv_label_set_text(id(row5), row("proxmox-5", id(n5_up).state, id(n5_cpu).state, id(n5_ram).state, id(n5_disk).state, id(n5_vm).state, id(n5_ct).state).c_str());
+
+          // Global status computation
+          bool any_node_down = !(id(n1_up).state && id(n2_up).state && id(n3_up).state && id(n4_up).state && id(n5_up).state);
+          bool any_updates = (id(n1_updates_pending).state || id(n2_updates_pending).state || id(n3_updates_pending).state || id(n4_updates_pending).state || id(n5_updates_pending).state);
+
+          // These *_health binary sensors are treated as healthy=ON.
+          // A disk problem exists when any health sensor is OFF.
+          bool all_disks_healthy =
+            (id(d1_problem).state && id(d1b_problem).state && id(d2_problem).state && id(d3_problem).state && id(d4_problem).state && id(d5_problem).state);
+          bool any_disk_problem = !all_disks_healthy;
+
+          std::string status = "STATUS: OK";
+          uint32_t status_color = 0x2ECC71;
+          if (any_node_down) {
+            status = "STATUS: NODE DOWN";
+            status_color = 0xE74C3C;
+          } else if (any_disk_problem) {
+            status = "STATUS: DISK PROBLEM";
+            status_color = 0xE74C3C;
+          } else if (any_updates) {
+            status = "STATUS: UPDATES PENDING";
+            status_color = 0xF39C12;
+          }
+
+          lv_label_set_text(id(global_status), status.c_str());
+          lv_obj_set_style_text_color(id(global_status), lv_color_hex(status_color), LV_PART_MAIN);
+          lv_label_set_text(id(legend), any_disk_problem ? "Disk issue detected" : "OK=all nodes up, no disk problems");
