@@ -346,3 +346,16 @@ extern "C" void ui_update_wifi_status(bool connected, const char * ip_or_ssid)
         lv_label_set_text(wifi_label, "WIFI DISCONNECTED");
     }
 }
+
+bool ui_is_muted(void)
+{
+    return is_muted;
+}
+
+int ui_get_volume(void)
+{
+    if (slider_vol) {
+        return lv_slider_get_value(slider_vol);
+    }
+    return 70;
+}

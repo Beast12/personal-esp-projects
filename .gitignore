@@ -3,3 +3,4 @@ secrets.yml
 .pio/
 .pioenvs/
 .piolibdeps/
+Voice-Assistant-FreeNove/src/config.h

@@ -144,7 +144,7 @@ public:
     Audio(uint8_t i2sPort = I2S_NUM_0);
     ~Audio();
     bool openai_speech(const String& api_key, const String& model, const String& input, const String& voice, const String& response_format, const String& speed);
-    bool connecttohost(const char* host, const char* user = "", const char* pwd = "");
+    bool connecttohost(const char* host, const char* user = "", const char* pwd = "", const char* bearer_token = "");
     bool connecttospeech(const char* speech, const char* lang);
     bool connecttoFS(fs::FS &fs, const char* path, int32_t m_fileStartPos = -1);
     bool setFileLoop(bool input);//TEST loop

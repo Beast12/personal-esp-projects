@@ -2,20 +2,17 @@
 #include <WiFi.h>
 #include "display.h"
 #include "ui.h"
+#include "config.h"
+#include "voice_assistant.h"
 
 Display screen;
-
-// Wi-Fi settings
-const char* ssid = "Skynet";
-const char* password = "TheLoveHouse";
 
 // Connection tracking
 bool wifi_connected = false;
 unsigned long wifi_check_timer = 0;
 
-// Simulation tracking
+// Interaction state tracking
 AssistantState last_checked_state = STATE_IDLE;
-unsigned long state_transition_timer = 0;
 
 extern "C" void ui_update_wifi_status(bool connected, const char * ip_or_ssid);
 
@@ -37,9 +34,12 @@ void setup()
     Serial.println("UI layer online.");
 
     // Connect to Wi-Fi asynchronously (non-blocking)
-    Serial.printf("Connecting to Wi-Fi SSID: %s\n", ssid);
-    WiFi.begin(ssid, password);
+    Serial.printf("Connecting to Wi-Fi SSID: %s\n", WIFI_SSID);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     ui_set_status_text("WIFI SEARCHING...");
+
+    // Initialize voice assistant and audio codec
+    VoiceAssistant::init();
 }
 
 void loop()
@@ -77,43 +77,25 @@ void loop()
         }
     }
 
-    // 2. Animated Interaction State Machine
+    // 2. Interaction State Machine Hooked to VoiceAssistant
     AssistantState active_state = ui_get_state();
     
     // Check if state changed (e.g. from user pressing the TALK button on screen)
     if (active_state != last_checked_state) {
+        AssistantState old_state = last_checked_state;
         last_checked_state = active_state;
-        state_transition_timer = current_time;
-        Serial.printf("State Transition Detected: %d\n", (int)active_state);
+        Serial.printf("State Transition Detected: %d -> %d\n", (int)old_state, (int)active_state);
+        
+        if (active_state == STATE_LISTENING) {
+            VoiceAssistant::start_listening();
+        } else if (active_state == STATE_IDLE && old_state == STATE_LISTENING) {
+            VoiceAssistant::stop_listening();
+        }
     }
 
-    // Run simulated response workflow
-    if (active_state == STATE_LISTENING) {
-        // Wait 4 seconds in Listening state, then simulate voice input termination
-        if (current_time - state_transition_timer > 4000) {
-            Serial.println("Simulating: Voice input received. Processing...");
-            ui_set_state(STATE_THINKING);
-            ui_set_status_text("PROCESSING...");
-            ui_set_transcript_text("User: \"Are all systems functioning, Jarvis?\"");
-        }
-    } 
-    else if (active_state == STATE_THINKING) {
-        // Wait 3 seconds in Thinking state, then simulate generating response
-        if (current_time - state_transition_timer > 3000) {
-            Serial.println("Simulating: Response generated. Speaking...");
-            ui_set_state(STATE_SPEAKING);
-            ui_set_status_text("SPEAKING...");
-            ui_set_transcript_text("J.A.R.V.I.S.: \"Indeed they are, sir. I have verified all local network parameters and dashboard drivers. All systems are green.\"");
-        }
-    } 
-    else if (active_state == STATE_SPEAKING) {
-        // Wait 6 seconds in Speaking state, then return to Idle
-        if (current_time - state_transition_timer > 6000) {
-            Serial.println("Simulating: Speaking completed. Returning to Idle...");
-            ui_set_state(STATE_IDLE);
-            ui_set_status_text("SYSTEM ONLINE");
-            ui_set_transcript_text("Ready. Standing by for next command, sir.");
-        }
+    // 3. Poll Voice Assistant events and I2S audio
+    if (wifi_connected) {
+        VoiceAssistant::loop();
     }
 
     delay(5);

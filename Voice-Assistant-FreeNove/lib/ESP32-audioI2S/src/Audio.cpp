@@ -430,7 +430,7 @@ bool Audio::openai_speech(const String& api_key, const String& model, const Stri
 }
 
 //------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-bool Audio::connecttohost(const char* host, const char* user, const char* pwd) { // user and pwd for authentification only, can be empty
+bool Audio::connecttohost(const char* host, const char* user, const char* pwd, const char* bearer_token) { // user and pwd for authentification only, can be empty
 
     bool     res           = false; // return value
     char*    c_host        = NULL;  // copy of host
@@ -442,6 +442,7 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
     int16_t  pos_ampersand = 0;     // position of "&" in hostname
     uint32_t timestamp     = 0;     // timeout surveillance
     uint16_t hostwoext_begin = 0;
+    uint16_t extra_len     = 0;
 
     // char*    authorization = NULL;  // authorization
     char*    rqh           = NULL;  // request header
@@ -492,7 +493,8 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
         h_host[pos_colon] = '\0';
     }
     setDefaults();
-    rqh = x_ps_calloc(lenHost + strlen(authorization) + 300, 1); // http request header
+    extra_len = bearer_token ? strlen(bearer_token) : 0;
+    rqh = x_ps_calloc(lenHost + strlen(authorization) + extra_len + 300, 1); // http request header
     if(!rqh) {AUDIO_INFO("out of memory"); stopSong(); goto exit;}
 
                        strcat(rqh, "GET /");
@@ -505,9 +507,15 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
                        strcat(rqh, "Icy-MetaData:2\r\n");
                        strcat(rqh, "Accept:*/*\r\n");
                        strcat(rqh, "User-Agent: VLC/3.0.21 LibVLC/3.0.21\r\n");
-    if(authLen > 0) {  strcat(rqh, "Authorization: Basic ");
+    if(bearer_token && strlen(bearer_token) > 0) {
+                       strcat(rqh, "Authorization: Bearer ");
+                       strcat(rqh, bearer_token);
+                       strcat(rqh, "\r\n");
+    } else if(authLen > 0) {
+                       strcat(rqh, "Authorization: Basic ");
                        strcat(rqh, authorization);
-                       strcat(rqh, "\r\n"); }
+                       strcat(rqh, "\r\n");
+    }
                        strcat(rqh, "Accept-Encoding: identity;q=1,*;q=0\r\n");
                        strcat(rqh, "Connection: keep-alive\r\n\r\n");
 
