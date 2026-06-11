@@ -89,7 +89,7 @@ void VoiceAssistant::init() {
             
             // Set initial volume and microphone gain
             es8311_voice_volume_set(es_handle, 75, NULL);
-            es8311_microphone_gain_set(es_handle, ES8311_MIC_GAIN_36DB);
+            es8311_microphone_gain_set(es_handle, ES8311_MIC_GAIN_42DB);
             Serial.println("VoiceAssistant: ES8311 Codec successfully configured.");
         } else {
             Serial.println("VoiceAssistant: Failed to initialize ES8311 Codec!");
