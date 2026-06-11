@@ -6,6 +6,7 @@
 #include "es8311.h"
 #include "Audio.h"
 #include "config.h"
+#include "app_config.h"
 #include "ui.h"
 
 // Hardware pin definitions for Freenove 3.5" ST77922 board
@@ -103,8 +104,8 @@ void VoiceAssistant::init() {
     // 3. Audio Player will be initialized dynamically during playback
 
     // 4. Initialize WebSocket Client
-    Serial.printf("VoiceAssistant: Connecting to Home Assistant at ws://%s:%d/api/websocket\n", HA_HOST, HA_PORT);
-    webSocket.begin(HA_HOST, HA_PORT, "/api/websocket");
+    Serial.printf("VoiceAssistant: Connecting to Home Assistant at ws://%s:%d/api/websocket\n", app_config_get().ha_host, app_config_get().ha_port);
+    webSocket.begin(app_config_get().ha_host, app_config_get().ha_port, "/api/websocket");
     webSocket.onEvent(webSocketEvent);
     webSocket.setReconnectInterval(5000);
 }
@@ -271,8 +272,8 @@ static void send_pipeline_run(bool wake_word_mode) {
     JsonObject input = doc.createNestedObject("input");
     input["sample_rate"] = 16000;
 
-    if (strlen(HA_PIPELINE_ID) > 0) {
-        doc["pipeline"] = HA_PIPELINE_ID;
+    if (strlen(app_config_get().ha_pipeline_id) > 0) {
+        doc["pipeline"] = app_config_get().ha_pipeline_id;
     }
 
     String jsonStr;
@@ -312,7 +313,7 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 // Send Access Token
                 JsonDocument authDoc;
                 authDoc["type"] = "auth";
-                authDoc["access_token"] = HA_TOKEN;
+                authDoc["access_token"] = app_config_get().ha_token;
                 
                 String authStr;
                 serializeJson(authDoc, authStr);
@@ -416,9 +417,9 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                     if (url) {
                         // Build full absolute URL
                         String abs_url = "http://";
-                        abs_url += HA_HOST;
+                        abs_url += app_config_get().ha_host;
                         abs_url += ":";
-                        abs_url += String(HA_PORT);
+                        abs_url += String(app_config_get().ha_port);
                         abs_url += url;
                         tts_url = abs_url;
                         
@@ -452,7 +453,7 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                         Serial.println("VoiceAssistant: Audio amplifier enabled.");
 
                         // Start playing the TTS audio
-                        player_running = audio_player->connecttohost(tts_url.c_str(), "", "", HA_TOKEN);
+                        player_running = audio_player->connecttohost(tts_url.c_str(), "", "", app_config_get().ha_token);
                         if (!player_running) {
                             Serial.println("VoiceAssistant: Failed to start TTS audio playback!");
                             delete audio_player;

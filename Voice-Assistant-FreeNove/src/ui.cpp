@@ -16,9 +16,29 @@ static lv_obj_t * slider_vol;
 static AssistantState current_state = STATE_IDLE;
 static bool is_muted = false;
 
-// Custom colors
-#define COLOR_CYAN     lv_color_hex(0x00D2FF)
-#define COLOR_DARK_CYAN lv_color_hex(0x005A70)
+#include "app_config.h"
+
+// Custom colors parsed dynamically from persistent config
+static inline lv_color_t get_theme_color() {
+    const char* hex = app_config_get().theme_color;
+    if (hex[0] == '#') hex++;
+    uint32_t val = strtol(hex, NULL, 16);
+    return lv_color_hex(val);
+}
+
+static inline lv_color_t get_theme_color_dark() {
+    const char* hex = app_config_get().theme_color;
+    if (hex[0] == '#') hex++;
+    uint32_t val = strtol(hex, NULL, 16);
+    uint8_t r = (val >> 16) & 0xFF;
+    uint8_t g = (val >> 8) & 0xFF;
+    uint8_t b = val & 0xFF;
+    // Scale down to 35% for dark/border version of the color
+    return lv_color_make(r * 0.35, g * 0.35, b * 0.35);
+}
+
+#define COLOR_CYAN      get_theme_color()
+#define COLOR_DARK_CYAN get_theme_color_dark()
 #define COLOR_ORANGE   lv_color_hex(0xFF5F00)
 #define COLOR_AMBER    lv_color_hex(0xFFD200)
 #define COLOR_BG       lv_color_hex(0x0A0D10)
