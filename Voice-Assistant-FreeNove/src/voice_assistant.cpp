@@ -46,7 +46,7 @@ static bool last_mute_state = false;
 static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length);
 static void start_recording();
 static void stop_recording();
-static void send_pipeline_run();
+static void send_pipeline_run(bool wake_word_mode);
 
 // Weakly-linked audio callbacks from ESP32-audioI2S
 void audio_eof_mp3(const char *info) {
@@ -131,6 +131,9 @@ void VoiceAssistant::loop() {
         // Reset state back to Idle
         ui_set_state(STATE_IDLE);
         ui_set_status_text("SYSTEM ONLINE");
+        
+        // Auto-restart wake-word detection
+        VoiceAssistant::start_listening(true);
     }
 
     // 1. Process Hardware Volume Controls dynamically from the UI slider
@@ -185,7 +188,7 @@ void VoiceAssistant::loop() {
     }
 }
 
-void VoiceAssistant::start_listening() {
+void VoiceAssistant::start_listening(bool wake_word_mode) {
     stt_handler_id = -1;
     if (player_running) {
         if (audio_player) {
@@ -203,8 +206,8 @@ void VoiceAssistant::start_listening() {
         return;
     }
 
-    Serial.println("VoiceAssistant: Triggering Home Assistant Assist Pipeline...");
-    send_pipeline_run();
+    Serial.printf("VoiceAssistant: Triggering Home Assistant Assist Pipeline (wake_word=%s)...\n", wake_word_mode ? "true" : "false");
+    send_pipeline_run(wake_word_mode);
 }
 
 void VoiceAssistant::stop_listening() {
@@ -258,11 +261,11 @@ static void stop_recording() {
     Serial.println("VoiceAssistant: I2S Microphone streaming stopped.");
 }
 
-static void send_pipeline_run() {
+static void send_pipeline_run(bool wake_word_mode) {
     JsonDocument doc;
     doc["id"] = msg_id++;
     doc["type"] = "assist_pipeline/run";
-    doc["start_stage"] = "stt";
+    doc["start_stage"] = wake_word_mode ? "wake_word" : "stt";
     doc["end_stage"] = "tts";
 
     JsonObject input = doc.createNestedObject("input");
@@ -321,6 +324,8 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 Serial.println("VoiceAssistant: Authentication successful!");
                 ui_set_status_text("SYSTEM ONLINE");
                 ui_set_transcript_text("Ready. WebSocket uplink secure.");
+                // Automatically enter wake-word detection mode on boot
+                VoiceAssistant::start_listening(true);
             } 
             else if (strcmp(type, "auth_invalid") == 0) {
                 ws_authenticated = false;
@@ -328,14 +333,37 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 ui_set_status_text("AUTH ERROR");
                 ui_set_transcript_text("Authentication failed. Please verify your HA_TOKEN.");
             } 
+            else if (strcmp(type, "result") == 0) {
+                bool success = doc["success"];
+                if (!success) {
+                    const char* err_code = doc["error"]["code"];
+                    const char* err_msg = doc["error"]["message"];
+                    Serial.printf("VoiceAssistant: Command failed! Code: %s, Message: %s\n", 
+                                  err_code ? err_code : "", err_msg ? err_msg : "");
+                } else {
+                    Serial.println("VoiceAssistant: Command succeeded (result).");
+                }
+            }
             else if (strcmp(type, "event") == 0) {
                 const char* event_type = doc["event"]["type"];
                 if (!event_type) return;
+                
+                Serial.printf("VoiceAssistant: Received event type: %s\n", event_type);
 
                 if (strcmp(event_type, "run-start") == 0) {
                     stt_handler_id = doc["event"]["data"]["runner_data"]["stt_binary_handler_id"];
                     Serial.printf("VoiceAssistant: HA Pipeline run started. Handler ID: %d\n", stt_handler_id);
                 } 
+                else if (strcmp(event_type, "wake_word-start") == 0) {
+                    Serial.println("VoiceAssistant: Wake-word detection active. Listening on server...");
+                    ui_set_state(STATE_IDLE);
+                    ui_set_status_text("READY (SAY JARVIS)");
+                    ui_set_transcript_text("Listening for \"Hey Jarvis\"...");
+                    start_recording();
+                }
+                else if (strcmp(event_type, "wake_word-end") == 0) {
+                    Serial.println("VoiceAssistant: Wake-word detected!");
+                }
                 else if (strcmp(event_type, "stt-start") == 0) {
                     Serial.println("VoiceAssistant: STT stage started.");
                     
@@ -343,7 +371,9 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                     ui_set_status_text("LISTENING...");
                     ui_set_transcript_text("Listening...");
                     
-                    start_recording();
+                    if (!is_recording) {
+                        start_recording();
+                    }
                 } 
                 else if (strcmp(event_type, "stt-vad-start") == 0) {
                     Serial.println("VoiceAssistant: Voice activity detected.");
@@ -437,10 +467,9 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 } 
                 else if (strcmp(event_type, "run-end") == 0) {
                     Serial.println("VoiceAssistant: Pipeline run completed.");
-                    // If we did not receive any TTS url to play, reset to Idle
+                    // If we did not receive any TTS url to play, restart wake-word pipeline automatically
                     if (!player_running) {
-                        ui_set_state(STATE_IDLE);
-                        ui_set_status_text("SYSTEM ONLINE");
+                        VoiceAssistant::start_listening(true);
                     }
                 } 
                 else if (strcmp(event_type, "error") == 0) {
@@ -448,16 +477,19 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                     const char* message = doc["event"]["data"]["message"];
                     Serial.printf("VoiceAssistant: Pipeline error: %s - %s\n", code ? code : "", message ? message : "");
                     
-                    ui_set_state(STATE_IDLE);
-                    ui_set_status_text("PIPELINE ERROR");
-                    if (message) {
-                        String errMsg = "Error: ";
-                        errMsg += message;
-                        ui_set_transcript_text(errMsg.c_str());
-                    }
                     stop_recording();
                     // Ensure amplifier is disabled on error
                     digitalWrite(AP_ENABLE, HIGH);
+                    
+                    if (code && strcmp(code, "wake-word-timeout") != 0) {
+                        ui_set_state(STATE_IDLE);
+                        ui_set_status_text("PIPELINE ERROR");
+                        if (message) {
+                            String errMsg = "Error: ";
+                            errMsg += message;
+                            ui_set_transcript_text(errMsg.c_str());
+                        }
+                    }
                 }
             }
             break;

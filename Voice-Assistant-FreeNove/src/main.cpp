@@ -87,7 +87,7 @@ void loop()
         Serial.printf("State Transition Detected: %d -> %d\n", (int)old_state, (int)active_state);
         
         if (active_state == STATE_LISTENING) {
-            VoiceAssistant::start_listening();
+            VoiceAssistant::start_listening(false);
         } else if (active_state == STATE_IDLE && old_state == STATE_LISTENING) {
             VoiceAssistant::stop_listening();
         }
