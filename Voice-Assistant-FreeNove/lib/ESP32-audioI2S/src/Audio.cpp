@@ -296,6 +296,7 @@ void Audio::setDefaults() {
     m_f_stream = false;
     m_f_decode_ready = false;
     m_f_eof = false;
+    m_f_download_completed = false;
     m_f_ID3v1TagFound = false;
     m_f_lockInBuffer = false;
     m_f_acceptRanges = false;
@@ -2218,6 +2219,7 @@ uint32_t Audio::stopSong() {
         m_audioFileDuration = 0;
         m_codec = CODEC_NONE;
         m_dataMode = AUDIO_NONE;
+        m_f_download_completed = false;
         m_f_lockInBuffer = false;
     return pos;
 }
@@ -3174,8 +3176,23 @@ void Audio::processWebStream() {
     // chunked data tramsfer - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     if(m_f_chunked && availableBytes) {
         uint8_t readedBytes = 0;
-        if(!chunkSize) chunkSize = chunkedDataTransfer(&readedBytes);
-        availableBytes = min(availableBytes, chunkSize);
+        if(!chunkSize) {
+            size_t nextChunk = chunkedDataTransfer(&readedBytes);
+            if(nextChunk == (size_t)-1) {
+                // Empty line, ignore and let chunkSize remain 0 to retry next loop
+                availableBytes = 0;
+            } else if(nextChunk == 0) {
+                if(_client) _client->stop();
+                m_f_chunked = false;
+                availableBytes = 0;
+                m_f_download_completed = true;
+            } else {
+                chunkSize = nextChunk;
+                availableBytes = min(availableBytes, chunkSize);
+            }
+        } else {
+            availableBytes = min(availableBytes, chunkSize);
+        }
     }
     // we have metadata  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     if(m_f_metadata && availableBytes) {
@@ -3214,6 +3231,31 @@ void Audio::processWebStream() {
         AUDIO_INFO("stream ready");
         m_f_stream = true;  // ready to play the audio data
     }
+
+    // end of webstream reached? - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+    if(m_f_eof) { // m_f_eof and m_f_ID3v1TagFound will be set in playAudioData()
+        if(m_f_ID3v1TagFound) readID3V1Tag();
+
+        m_f_running = false;
+        m_streamType = ST_NONE;
+        if(m_codec == CODEC_MP3) MP3Decoder_FreeBuffers();
+        if(m_codec == CODEC_AAC) AACDecoder_FreeBuffers();
+        if(m_codec == CODEC_M4A) AACDecoder_FreeBuffers();
+        if(m_codec == CODEC_FLAC) FLACDecoder_FreeBuffers();
+        if(m_codec == CODEC_OPUS) OPUSDecoder_FreeBuffers();
+        if(m_codec == CODEC_VORBIS) VORBISDecoder_FreeBuffers();
+        m_codec = CODEC_NONE;
+        if(m_f_tts) {
+            AUDIO_INFO("End of speech \"%s\"", m_speechtxt);
+            if(audio_eof_speech) audio_eof_speech(m_speechtxt);
+            x_ps_free(&m_speechtxt);
+        }
+        else {
+            AUDIO_INFO("End of webstream: \"%s\"", m_lastHost);
+            if(audio_eof_stream) audio_eof_stream(m_lastHost);
+        }
+        return;
+    }
 }
 //------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 void Audio::processWebFile() {
@@ -3242,10 +3284,23 @@ void Audio::processWebFile() {
     if(m_f_chunked && availableBytes) {
         uint8_t readedBytes = 0;
         if(m_f_chunked && chunkSize == byteCounter) {
-            chunkSize += chunkedDataTransfer(&readedBytes);
-            m_contentlength += chunkSize;
+            size_t nextChunk = chunkedDataTransfer(&readedBytes);
+            if(nextChunk == (size_t)-1) {
+                // Empty line, ignore and retry next loop
+                availableBytes = 0;
+            } else if(nextChunk == 0) {
+                if(_client) _client->stop();
+                m_f_chunked = false;
+                availableBytes = 0;
+                m_f_download_completed = true;
+            } else {
+                chunkSize += nextChunk;
+                m_contentlength += nextChunk;
+                availableBytes = min(availableBytes, chunkSize - byteCounter);
+            }
+        } else {
+            availableBytes = min(availableBytes, chunkSize - byteCounter);
         }
-        availableBytes = min(availableBytes, chunkSize - byteCounter);
     }
 
     if(!m_contentlength && !chunkSize) {
@@ -3576,6 +3631,10 @@ void Audio::playAudioData() {
         if(bytesToDecode < InBuff.getMaxBlockSize()) {lastFrame = true;}
         if(m_sumBytesDecoded >= m_audioDataSize && m_sumBytesDecoded != 0) { m_f_eof = true; goto exit; }
     }
+    if(m_f_download_completed) {
+        lastFrame = true;
+        if(InBuff.bufferFilled() == 0) { m_f_eof = true; goto exit; }
+    }
     if(!lastFrame) if(InBuff.bufferFilled() < InBuff.getMaxBlockSize()) goto exit;;
 
     bytesDecoded = sendBytes(InBuff.getReadPtr(), InBuff.getMaxBlockSize());
@@ -3597,7 +3656,13 @@ void Audio::playAudioData() {
             }
             goto exit;
         }
-        if(bytesDecoded == 0) goto exit; // syncword at pos0
+        if(bytesDecoded == 0) {
+            if(m_f_download_completed) {
+                m_f_eof = true;
+                goto exit;
+            }
+            goto exit; // syncword at pos0
+        }
     }
 exit:
     m_f_audioTaskIsDecoding = false;
@@ -5584,6 +5649,7 @@ size_t Audio::chunkedDataTransfer(uint8_t* bytes) {
     uint8_t  byteCounter = 0;
     size_t   chunksize = 0;
     int      b = 0;
+    bool     hasHex = false;
     uint32_t ctime = millis();
     uint32_t timeout = 2000; // ms
     while(true) {
@@ -5598,12 +5664,14 @@ size_t Audio::chunkedDataTransfer(uint8_t* bytes) {
         if(b == '\n') break;
         if(b < '0') continue;
         // We have received a hexadecimal character.  Decode it and add to the result.
+        hasHex = true;
         b = toupper(b) - '0'; // Be sure we have uppercase
         if(b > 9) b = b - 7;  // Translate A..F to 10..15
         chunksize = (chunksize << 4) + b;
     }
     // if(m_f_Log) log_i("chunksize %d", chunksize);
     *bytes = byteCounter;
+    if (!hasHex) return (size_t)-1; // return -1 to signal empty line (bypassing the VAD / headers trailing CRLF)
     return chunksize;
 }
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -5713,6 +5781,7 @@ bool Audio::readID3V1Tag() {
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 boolean Audio::streamDetection(uint32_t bytesAvail) {
     if(!m_lastHost) {log_e("m_lastHost is NULL"); return false;}
+    if(!_client || !_client->connected()) return false;
     static uint32_t tmr_slow = millis();
     static uint32_t tmr_lost = millis();
     static uint8_t  cnt_slow = 0;

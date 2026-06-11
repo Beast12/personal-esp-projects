@@ -135,19 +135,36 @@ static const struct _coeff_div coeff_div[] = {
     {1536000, 96000, 0x01, 0x03, 0x01, 0x01, 0x01, 0x00, 0x7f, 0x02, 0x10, 0x10},
 };
 
+#include <Wire.h>
+
 static const char *TAG = "ES8311";
 
 static inline esp_err_t es8311_write_reg(es8311_handle_t dev, uint8_t reg_addr, uint8_t data)
 {
     es8311_dev_t *es = (es8311_dev_t *) dev;
-    const uint8_t write_buf[2] = {reg_addr, data};
-    return i2c_master_write_to_device(es->port, es->dev_addr, write_buf, sizeof(write_buf), pdMS_TO_TICKS(1000));
+    Wire.beginTransmission(es->dev_addr);
+    Wire.write(reg_addr);
+    Wire.write(data);
+    if (Wire.endTransmission() == 0) {
+        return ESP_OK;
+    }
+    return ESP_FAIL;
 }
 
 static inline esp_err_t es8311_read_reg(es8311_handle_t dev, uint8_t reg_addr, uint8_t *reg_value)
 {
     es8311_dev_t *es = (es8311_dev_t *) dev;
-    return i2c_master_write_read_device(es->port, es->dev_addr, &reg_addr, 1, reg_value, 1, pdMS_TO_TICKS(1000));
+    Wire.beginTransmission(es->dev_addr);
+    Wire.write(reg_addr);
+    if (Wire.endTransmission(false) != 0) {
+        return ESP_FAIL;
+    }
+    Wire.requestFrom((uint8_t)es->dev_addr, (uint8_t)1);
+    if (Wire.available()) {
+        *reg_value = Wire.read();
+        return ESP_OK;
+    }
+    return ESP_FAIL;
 }
 
 static int get_coeff(uint32_t mclk, uint32_t rate)

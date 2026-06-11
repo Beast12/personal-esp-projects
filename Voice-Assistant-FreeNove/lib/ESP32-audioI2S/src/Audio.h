@@ -737,6 +737,7 @@ private:
     bool            m_f_stream = false;             // stream ready for output?
     bool            m_f_decode_ready = false;       // if true data for decode are ready
     bool            m_f_eof = false;                // end of file
+    bool            m_f_download_completed = false; // clean socket EOF completion
     bool            m_f_lockInBuffer = false;       // lock inBuffer for manipulation
     bool            m_f_audioTaskIsDecoding = false;
     bool            m_f_acceptRanges = false;

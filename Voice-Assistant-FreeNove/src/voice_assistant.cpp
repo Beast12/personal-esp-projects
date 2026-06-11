@@ -25,7 +25,8 @@
 
 // Instances and state variables
 static WebSocketsClient webSocket;
-static Audio audio_player;
+static Audio* audio_player = nullptr;
+static bool should_delete_player = false;
 static I2SClass mic_i2s;
 static es8311_handle_t es_handle = NULL;
 
@@ -66,9 +67,9 @@ void audio_eof_speech(const char *info) {
 void VoiceAssistant::init() {
     Serial.println("VoiceAssistant: Initializing audio subsystems...");
 
-    // 1. Initialize Amplifier Power pin
+    // 1. Initialize Amplifier Power pin (Active-Low)
     pinMode(AP_ENABLE, OUTPUT);
-    digitalWrite(AP_ENABLE, LOW); // Mute initially to prevent speaker pops
+    digitalWrite(AP_ENABLE, HIGH); // Mute/disable initially to prevent speaker pops
 
     // 2. Initialize ES8311 Codec via I2C (shares the same bus with the touchpad)
     es_handle = es8311_create(I2C_NUM_0, ES8311_ADDRESS_0);
@@ -84,6 +85,7 @@ void VoiceAssistant::init() {
         esp_err_t err = es8311_init(es_handle, &es_clk, ES8311_RESOLUTION_16, ES8311_RESOLUTION_16);
         if (err == ESP_OK) {
             es8311_sample_frequency_config(es_handle, EXAMPLE_SAMPLE_RATE * EXAMPLE_MCLK_MULTIPLE, EXAMPLE_SAMPLE_RATE);
+            es8311_microphone_config(es_handle, false);
             
             // Set initial volume and microphone gain
             es8311_voice_volume_set(es_handle, 75, NULL);
@@ -96,12 +98,9 @@ void VoiceAssistant::init() {
         Serial.println("VoiceAssistant: Failed to create ES8311 handle!");
     }
 
-    // Enable amplifier power
-    digitalWrite(AP_ENABLE, HIGH);
+    // Keep amplifier disabled initially; we will enable it dynamically during playback
 
-    // 3. Initialize Audio Player Pinout
-    audio_player.setPinout(I2S_BCK, I2S_WS, I2S_DOUT, I2S_MCK);
-    audio_player.setVolume(21); // Set software volume to maximum, we control via ES8311 hardware volume
+    // 3. Audio Player will be initialized dynamically during playback
 
     // 4. Initialize WebSocket Client
     Serial.printf("VoiceAssistant: Connecting to Home Assistant at ws://%s:%d/api/websocket\n", HA_HOST, HA_PORT);
@@ -115,8 +114,23 @@ void VoiceAssistant::loop() {
     webSocket.loop();
 
     // Poll Audio Player
-    if (player_running) {
-        audio_player.loop();
+    if (player_running && audio_player) {
+        audio_player->loop();
+    }
+
+    // Safely delete audio player from the main loop if requested
+    if (should_delete_player) {
+        should_delete_player = false;
+        if (audio_player) {
+            delete audio_player;
+            audio_player = nullptr;
+            Serial.println("VoiceAssistant: Audio player deleted safely.");
+        }
+        // Disable amplifier power (active-low)
+        digitalWrite(AP_ENABLE, HIGH);
+        // Reset state back to Idle
+        ui_set_state(STATE_IDLE);
+        ui_set_status_text("SYSTEM ONLINE");
     }
 
     // 1. Process Hardware Volume Controls dynamically from the UI slider
@@ -148,15 +162,37 @@ void VoiceAssistant::loop() {
         // Read mono 16-bit 16kHz PCM data from microphone
         size_t read_bytes = mic_i2s.readBytes((char*)(buffer + 1), AUDIO_CHUNK_SIZE);
         if (read_bytes > 0) {
+            // Audio diagnostics
+            int16_t* samples = (int16_t*)(buffer + 1);
+            size_t num_samples = read_bytes / 2;
+            int16_t min_val = 32767;
+            int16_t max_val = -32768;
+            int64_t sum = 0;
+            for (size_t i = 0; i < num_samples; i++) {
+                int16_t sample = samples[i];
+                if (sample < min_val) min_val = sample;
+                if (sample > max_val) max_val = sample;
+                sum += abs(sample);
+            }
+            static uint32_t chunk_count = 0;
+            if (chunk_count++ % 15 == 0) {
+                Serial.printf("Audio stream diagnostics: read=%d, min=%d, max=%d, avg_abs=%d\n",
+                              (int)read_bytes, min_val, max_val, (int)(sum / num_samples));
+            }
+
             webSocket.sendBIN(buffer, read_bytes + 1);
         }
     }
 }
 
 void VoiceAssistant::start_listening() {
+    stt_handler_id = -1;
     if (player_running) {
-        audio_player.stopSong();
+        if (audio_player) {
+            audio_player->stopSong();
+        }
         player_running = false;
+        should_delete_player = true;
     }
 
     if (!ws_connected || !ws_authenticated) {
@@ -191,12 +227,9 @@ bool VoiceAssistant::is_active() {
 
 // Global hook called when TTS playback ends
 void VoiceAssistant::on_playback_finished() {
-    Serial.println("VoiceAssistant: TTS Playback finished.");
+    Serial.println("VoiceAssistant: TTS Playback finished. Requesting player deletion.");
     player_running = false;
-    
-    // Reset state back to Idle
-    ui_set_state(STATE_IDLE);
-    ui_set_status_text("SYSTEM ONLINE");
+    should_delete_player = true;
 }
 
 static void start_recording() {
@@ -210,8 +243,8 @@ static void start_recording() {
         return;
     }
 
-    // Set read timeout to 0 so reading is completely non-blocking
-    mic_i2s.setTimeout(0);
+    // Set read timeout to 100ms to allow DMA buffer to accumulate enough bytes
+    mic_i2s.setTimeout(100);
 
     is_recording = true;
     Serial.println("VoiceAssistant: I2S Microphone streaming active.");
@@ -300,11 +333,11 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 if (!event_type) return;
 
                 if (strcmp(event_type, "run-start") == 0) {
-                    Serial.println("VoiceAssistant: HA Pipeline run started.");
+                    stt_handler_id = doc["event"]["data"]["runner_data"]["stt_binary_handler_id"];
+                    Serial.printf("VoiceAssistant: HA Pipeline run started. Handler ID: %d\n", stt_handler_id);
                 } 
                 else if (strcmp(event_type, "stt-start") == 0) {
-                    stt_handler_id = doc["event"]["data"]["stt_binary_handler_id"];
-                    Serial.printf("VoiceAssistant: STT stage started. Handler ID: %d\n", stt_handler_id);
+                    Serial.println("VoiceAssistant: STT stage started.");
                     
                     ui_set_state(STATE_LISTENING);
                     ui_set_status_text("LISTENING...");
@@ -368,10 +401,34 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                         // Make sure recording is ended
                         stop_recording();
                         
+                        // Create the audio player dynamically
+                        if (audio_player) {
+                            delete audio_player;
+                        }
+                        audio_player = new Audio();
+                        
+                        // Set pinout and initial volume
+                        audio_player->setPinout(I2S_BCK, I2S_WS, I2S_DOUT, I2S_MCK);
+                        audio_player->setVolume(21);
+                        
+                        // Ensure ES8311 is unmuted and volume is applied before starting stream
+                        if (es_handle) {
+                            es8311_voice_volume_set(es_handle, current_volume >= 0 ? current_volume : 70, NULL);
+                            es8311_voice_mute(es_handle, last_mute_state);
+                        }
+                        
+                        // Enable amplifier power (active-low)
+                        digitalWrite(AP_ENABLE, LOW);
+                        Serial.println("VoiceAssistant: Audio amplifier enabled.");
+
                         // Start playing the TTS audio
-                        player_running = audio_player.connecttohost(tts_url.c_str(), "", "", HA_TOKEN);
+                        player_running = audio_player->connecttohost(tts_url.c_str(), "", "", HA_TOKEN);
                         if (!player_running) {
                             Serial.println("VoiceAssistant: Failed to start TTS audio playback!");
+                            delete audio_player;
+                            audio_player = nullptr;
+                            // Disable amplifier power (active-low)
+                            digitalWrite(AP_ENABLE, HIGH);
                             // Return to Idle
                             ui_set_state(STATE_IDLE);
                             ui_set_status_text("SYSTEM ONLINE");
@@ -399,6 +456,8 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                         ui_set_transcript_text(errMsg.c_str());
                     }
                     stop_recording();
+                    // Ensure amplifier is disabled on error
+                    digitalWrite(AP_ENABLE, HIGH);
                 }
             }
             break;
@@ -411,5 +470,37 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         case WStype_ERROR:
             Serial.println("VoiceAssistant: WebSocket error event!");
             break;
+    }
+}
+
+// Audio player callbacks
+void audio_info(const char *info) {
+    Serial.printf("AudioPlayer info: %s\n", info);
+    
+    // Check for sample rate updates from the decoder
+    if (strstr(info, "SampleRate:") != NULL) {
+        int rate = atoi(info + 11);
+        if (rate > 0 && es_handle) {
+            Serial.printf("VoiceAssistant: Reconfiguring ES8311 sample rate to %d Hz...\n", rate);
+            int multipliers[] = {256, 384, 512, 128};
+            bool success = false;
+            for (int m : multipliers) {
+                esp_err_t err = es8311_sample_frequency_config(es_handle, rate * m, rate);
+                if (err == ESP_OK) {
+                    Serial.printf("VoiceAssistant: Configured ES8311 sample rate with MCLK multiplier %d\n", m);
+                    success = true;
+                    break;
+                }
+            }
+            if (!success) {
+                Serial.printf("VoiceAssistant: Failed to configure ES8311 sample rate for %d Hz!\n", rate);
+            }
+        }
+    }
+    
+    // If stream is lost, don't try to reconnect to an ephemeral TTS URL
+    if (strstr(info, "Stream lost") != NULL) {
+        Serial.println("VoiceAssistant: Stream lost detected. Stopping playback.");
+        VoiceAssistant::on_playback_finished();
     }
 }
