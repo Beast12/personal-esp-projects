@@ -190,6 +190,10 @@ void VoiceAssistant::loop() {
 }
 
 void VoiceAssistant::start_listening(bool wake_word_mode) {
+    if (!wake_word_mode && stt_handler_id >= 0) {
+        Serial.printf("[%lu ms] VoiceAssistant: start_listening(false) ignored because pipeline is already active (Handler ID: %d).\n", millis(), stt_handler_id);
+        return;
+    }
     stt_handler_id = -1;
     if (player_running) {
         if (audio_player) {
@@ -222,6 +226,7 @@ void VoiceAssistant::stop_listening() {
             webSocket.sendBIN(eof_packet, 1);
             Serial.println("VoiceAssistant: Sent EOF signal to Home Assistant.");
         }
+        stt_handler_id = -1;
     }
 }
 
@@ -471,6 +476,7 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 } 
                 else if (strcmp(event_type, "run-end") == 0) {
                     Serial.printf("[%lu ms] VoiceAssistant: Pipeline run completed.\n", millis());
+                    stt_handler_id = -1;
                     // If we did not receive any TTS url to play, restart wake-word pipeline automatically
                     if (!player_running) {
                         VoiceAssistant::start_listening(true);
@@ -480,7 +486,7 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                     const char* code = doc["event"]["data"]["code"];
                     const char* message = doc["event"]["data"]["message"];
                     Serial.printf("[%lu ms] VoiceAssistant: Pipeline error: %s - %s\n", millis(), code ? code : "", message ? message : "");
-                    
+                    stt_handler_id = -1;
                     stop_recording();
                     // Ensure amplifier is disabled on error
                     digitalWrite(AP_ENABLE, HIGH);
