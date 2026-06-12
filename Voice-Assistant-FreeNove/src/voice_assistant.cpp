@@ -207,7 +207,7 @@ void VoiceAssistant::start_listening(bool wake_word_mode) {
         return;
     }
 
-    Serial.printf("VoiceAssistant: Triggering Home Assistant Assist Pipeline (wake_word=%s)...\n", wake_word_mode ? "true" : "false");
+    Serial.printf("[%lu ms] VoiceAssistant: Triggering Home Assistant Assist Pipeline (wake_word=%s)...\n", millis(), wake_word_mode ? "true" : "false");
     send_pipeline_run(wake_word_mode);
 }
 
@@ -349,27 +349,27 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 const char* event_type = doc["event"]["type"];
                 if (!event_type) return;
                 
-                Serial.printf("VoiceAssistant: Received event type: %s\n", event_type);
+                Serial.printf("[%lu ms] VoiceAssistant: Received event type: %s\n", millis(), event_type);
 
                 if (strcmp(event_type, "run-start") == 0) {
                     stt_handler_id = doc["event"]["data"]["runner_data"]["stt_binary_handler_id"];
-                    Serial.printf("VoiceAssistant: HA Pipeline run started. Handler ID: %d\n", stt_handler_id);
+                    Serial.printf("[%lu ms] VoiceAssistant: HA Pipeline run started. Handler ID: %d\n", millis(), stt_handler_id);
                 } 
                 else if (strcmp(event_type, "wake_word-start") == 0) {
-                    Serial.println("VoiceAssistant: Wake-word detection active. Listening on server...");
+                    Serial.printf("[%lu ms] VoiceAssistant: Wake-word detection active. Listening on server...\n", millis());
                     ui_set_state(STATE_IDLE);
                     ui_set_status_text("READY (SAY JARVIS)");
                     ui_set_transcript_text("Listening for \"Hey Jarvis\"...");
                     start_recording();
                 }
                 else if (strcmp(event_type, "wake_word-end") == 0) {
-                    Serial.println("VoiceAssistant: Wake-word detected!");
+                    Serial.printf("[%lu ms] VoiceAssistant: Wake-word detected!\n", millis());
                     ui_set_state(STATE_LISTENING);
                     ui_set_status_text("LISTENING...");
                     ui_set_transcript_text("Listening...");
                 }
                 else if (strcmp(event_type, "stt-start") == 0) {
-                    Serial.println("VoiceAssistant: STT stage started.");
+                    Serial.printf("[%lu ms] VoiceAssistant: STT stage started.\n", millis());
                     
                     ui_set_state(STATE_LISTENING);
                     ui_set_status_text("LISTENING...");
@@ -380,10 +380,10 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                     }
                 } 
                 else if (strcmp(event_type, "stt-vad-start") == 0) {
-                    Serial.println("VoiceAssistant: Voice activity detected.");
+                    Serial.printf("[%lu ms] VoiceAssistant: Voice activity detected.\n", millis());
                 } 
                 else if (strcmp(event_type, "stt-vad-end") == 0) {
-                    Serial.println("VoiceAssistant: Silence detected. Processing speech...");
+                    Serial.printf("[%lu ms] VoiceAssistant: Silence detected. Processing speech...\n", millis());
                     ui_set_state(STATE_THINKING);
                     ui_set_status_text("PROCESSING...");
                     stop_recording();
@@ -398,7 +398,7 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 else if (strcmp(event_type, "stt-end") == 0) {
                     const char* text = doc["event"]["data"]["stt_output"]["text"];
                     if (text) {
-                        Serial.printf("VoiceAssistant: Recognized Speech: \"%s\"\n", text);
+                        Serial.printf("[%lu ms] VoiceAssistant: Recognized Speech: \"%s\"\n", millis(), text);
                         String t = "You: \"";
                         t += text;
                         t += "\"";
@@ -408,7 +408,7 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 else if (strcmp(event_type, "intent-end") == 0) {
                     const char* resp = doc["event"]["data"]["intent_output"]["response"]["speech"]["plain"]["speech"];
                     if (resp) {
-                        Serial.printf("VoiceAssistant: Intent response: \"%s\"\n", resp);
+                        Serial.printf("[%lu ms] VoiceAssistant: Intent response: \"%s\"\n", millis(), resp);
                         String r = "Jarvis: \"";
                         r += resp;
                         r += "\"";
@@ -426,7 +426,7 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                         abs_url += url;
                         tts_url = abs_url;
                         
-                        Serial.printf("VoiceAssistant: Playing TTS from URL: %s\n", tts_url.c_str());
+                        Serial.printf("[%lu ms] VoiceAssistant: Playing TTS from URL: %s\n", millis(), tts_url.c_str());
                         
                         // Transition UI to SPEAKING
                         ui_set_state(STATE_SPEAKING);
@@ -470,7 +470,7 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                     }
                 } 
                 else if (strcmp(event_type, "run-end") == 0) {
-                    Serial.println("VoiceAssistant: Pipeline run completed.");
+                    Serial.printf("[%lu ms] VoiceAssistant: Pipeline run completed.\n", millis());
                     // If we did not receive any TTS url to play, restart wake-word pipeline automatically
                     if (!player_running) {
                         VoiceAssistant::start_listening(true);
@@ -479,7 +479,7 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 else if (strcmp(event_type, "error") == 0) {
                     const char* code = doc["event"]["data"]["code"];
                     const char* message = doc["event"]["data"]["message"];
-                    Serial.printf("VoiceAssistant: Pipeline error: %s - %s\n", code ? code : "", message ? message : "");
+                    Serial.printf("[%lu ms] VoiceAssistant: Pipeline error: %s - %s\n", millis(), code ? code : "", message ? message : "");
                     
                     stop_recording();
                     // Ensure amplifier is disabled on error
