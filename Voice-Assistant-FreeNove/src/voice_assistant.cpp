@@ -244,6 +244,12 @@ void VoiceAssistant::on_playback_finished() {
 static void start_recording() {
     if (is_recording) return;
 
+    // Reconfigure ES8311 sample rate to 16000 Hz for recording
+    if (es_handle) {
+        es8311_sample_frequency_config(es_handle, 16000 * 256, 16000);
+        Serial.println("VoiceAssistant: Reconfigured ES8311 sample rate to 16000 Hz for recording.");
+    }
+
     // Set pins and initialize I2S RX channel
     mic_i2s.setPins(I2S_BCK, I2S_WS, I2S_DOUT, I2S_DINT, I2S_MCK);
     // 16kHz, 16-bit, Mono config
