@@ -364,6 +364,9 @@ static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 }
                 else if (strcmp(event_type, "wake_word-end") == 0) {
                     Serial.println("VoiceAssistant: Wake-word detected!");
+                    ui_set_state(STATE_LISTENING);
+                    ui_set_status_text("LISTENING...");
+                    ui_set_transcript_text("Listening...");
                 }
                 else if (strcmp(event_type, "stt-start") == 0) {
                     Serial.println("VoiceAssistant: STT stage started.");

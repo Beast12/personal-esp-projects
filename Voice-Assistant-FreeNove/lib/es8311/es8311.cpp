@@ -301,7 +301,7 @@ esp_err_t es8311_microphone_config(es8311_handle_t dev, bool digital_mic)
     if (digital_mic) {
         reg14 |= BIT(6);
     }
-    es8311_write_reg(dev, ES8311_ADC_REG17, 0xDF); // Boost digital gain to +16.0dB for clearer wake-word detection
+    es8311_write_reg(dev, ES8311_ADC_REG17, 0xFF); // Boost digital gain to +32.0dB (max) for high-sensitivity wake-word detection
     return es8311_write_reg(dev, ES8311_SYSTEM_REG14, reg14);
 }
 
