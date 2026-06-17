@@ -14,6 +14,7 @@ An interactive virtual aquarium simulator running on the ESP32-S3 touchscreen pa
 - **Shark Predator Event:** Spawns a large shark that swims across the screen, panicking and scaring away the fish.
 - **Treasure Chest Bubbler:** Toggleable bubble stream rising from a chest ornament.
 - **Disco Mode:** Cycles the water background through neon hues and strobes the fish colors.
+- **Alert / Meeting Mode:** Flashes a high-contrast red warning banner with custom message text, blinks yellow and red siren lights, and startles the fish (making them scatter and swim rapidly).
 
 ## Hardware Configuration (JC3248W535C_I)
 
@@ -37,6 +38,8 @@ Once flashed and connected, the panel automatically registers the following enti
 * **`esphome.aquarium_panel_feed_fish`**: Drops 3 food particles from the top of the screen.
 * **`esphome.aquarium_panel_tap_glass`**: Triggers a ripple and scares the fish.
 * **`esphome.aquarium_panel_spawn_shark`**: Releases a shark to swim across the aquarium.
+* **`esphome.aquarium_panel_show_alert`**: Triggers a pulsing alert overlay banner on the panel with custom message and blinking sirens, and scares the fish. Accepts `message` and `duration_seconds` variables.
+* **`esphome.aquarium_panel_clear_alert`**: Dismisses the alert overlay.
 
 ---
 
@@ -78,7 +81,22 @@ action:
   - action: esphome.aquarium_panel_spawn_shark
 ```
 
-### 4. Synced bubbler with real filters
+### 4. Meeting starting / Calendar event alert
+Display a banner and startle the fish when a calendar event (like a meeting) is starting:
+```yaml
+alias: "Aquarium: Meeting Alert"
+trigger:
+  - platform: calendar
+    event: start
+    entity_id: calendar.work_calendar
+action:
+  - action: esphome.aquarium_panel_show_alert
+    data:
+      message: "Meeting Starting!"
+      duration_seconds: 60
+```
+
+### 5. Synced bubbler with real filters
 Sync the virtual bubble generator with a real aquarium filter plug:
 ```yaml
 alias: "Aquarium: Sync Bubblers"

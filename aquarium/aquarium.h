@@ -40,8 +40,13 @@ struct FoodState {
 };
 
 struct SeaweedState {
-  lv_obj_t* obj;
+  lv_obj_t* base_obj;
+  lv_obj_t* mid_obj;
+  lv_obj_t* top_obj;
   float base_x;
+  float base_width;
+  float mid_width;
+  float top_width;
   float speed;
   float phase;
 };
@@ -57,7 +62,31 @@ class Aquarium {
   lv_obj_t* crab_obj = nullptr;
   lv_obj_t* shark_obj = nullptr;
   lv_obj_t* tap_obj = nullptr;
-  lv_obj_t* castle_obj = nullptr;
+  
+  // Castle parts
+  lv_obj_t* castle_keep_obj = nullptr;
+  lv_obj_t* castle_tower_l_obj = nullptr;
+  lv_obj_t* castle_tower_r_obj = nullptr;
+  lv_obj_t* castle_roof_l_obj = nullptr;
+  lv_obj_t* castle_roof_r_obj = nullptr;
+  lv_obj_t* castle_gate_obj = nullptr;
+  
+  // Chest parts
+  lv_obj_t* chest_body_obj = nullptr;
+  lv_obj_t* chest_lid_obj = nullptr;
+  lv_obj_t* chest_lock_obj = nullptr;
+
+  // Alert parts
+  lv_obj_t* alert_banner_obj = nullptr;
+  lv_obj_t* alert_label_obj = nullptr;
+  lv_obj_t* alert_light_l_obj = nullptr;
+  lv_obj_t* alert_light_r_obj = nullptr;
+  
+  // Alert state
+  bool alert_active = false;
+  std::string alert_msg = "";
+  uint32_t alert_start_time = 0;
+  uint32_t alert_duration_ms = 0;
   
   float crab_x = 220.0f;
   float crab_y = 295.0f;
@@ -81,11 +110,15 @@ class Aquarium {
       std::vector<lv_obj_t*> fish_objs,
       std::vector<lv_obj_t*> bubble_objs,
       std::vector<lv_obj_t*> food_objs,
-      std::vector<lv_obj_t*> seaweed_objs,
+      std::vector<lv_obj_t*> seaweed_objs_base,
+      std::vector<lv_obj_t*> seaweed_objs_mid,
+      std::vector<lv_obj_t*> seaweed_objs_top,
       lv_obj_t* crab,
       lv_obj_t* shark,
       lv_obj_t* tap,
-      lv_obj_t* castle,
+      std::vector<lv_obj_t*> castle_parts,
+      std::vector<lv_obj_t*> chest_parts,
+      std::vector<lv_obj_t*> alert_parts,
       esphome::font::Font* font_large,
       esphome::font::Font* font_medium,
       esphome::font::Font* font_small) {
@@ -94,7 +127,30 @@ class Aquarium {
     crab_obj = crab;
     shark_obj = shark;
     tap_obj = tap;
-    castle_obj = castle;
+    
+    // Castle
+    castle_keep_obj = castle_parts[0];
+    castle_tower_l_obj = castle_parts[1];
+    castle_tower_r_obj = castle_parts[2];
+    castle_roof_l_obj = castle_parts[3];
+    castle_roof_r_obj = castle_parts[4];
+    castle_gate_obj = castle_parts[5];
+    
+    // Chest
+    chest_body_obj = chest_parts[0];
+    chest_lid_obj = chest_parts[1];
+    chest_lock_obj = chest_parts[2];
+    
+    // Alert
+    alert_banner_obj = alert_parts[0];
+    alert_label_obj = alert_parts[1];
+    alert_light_l_obj = alert_parts[2];
+    alert_light_r_obj = alert_parts[3];
+    
+    lv_obj_add_flag(alert_banner_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(alert_label_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(alert_light_l_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(alert_light_r_obj, LV_OBJ_FLAG_HIDDEN);
     
     // Initialize 12 fish with varying species, depth layers, and starting velocities
     // Species types: 0 = Goldfish, 1 = Neon Tetra, 2 = Blowfish, 3 = Seahorse
@@ -176,16 +232,42 @@ class Aquarium {
       lv_obj_set_style_text_color(f, lv_color_hex(0xD35400), LV_PART_MAIN); // Orange-Brown flakes
     }
     
-    // Initialize seaweed states (5 stalks) with beautiful vertical green gradients
+    // Initialize seaweed states (5 stalks) with beautiful multi-level vertical green gradients
     float base_xs[5] = {35.0f, 85.0f, 190.0f, 290.0f, 435.0f};
-    for (size_t i = 0; i < seaweed_objs.size() && i < 5; ++i) {
+    float base_ws[5] = {14.0f, 18.0f, 12.0f, 16.0f, 14.0f};
+    float mid_ws[5] = {11.0f, 14.0f, 9.0f, 12.0f, 11.0f};
+    float top_ws[5] = {8.0f, 10.0f, 6.0f, 8.0f, 8.0f};
+    
+    for (size_t i = 0; i < 5; ++i) {
       float speed = 1.0f + ((rand() % 100) / 100.0f) * 1.5f;
       float phase = ((rand() % 100) / 100.0f) * 6.28f;
-      seaweed.push_back({seaweed_objs[i], base_xs[i], speed, phase});
+      seaweed.push_back({
+        seaweed_objs_base[i],
+        seaweed_objs_mid[i],
+        seaweed_objs_top[i],
+        base_xs[i],
+        base_ws[i],
+        mid_ws[i],
+        top_ws[i],
+        speed,
+        phase
+      });
       
-      lv_obj_set_style_bg_grad_dir(seaweed_objs[i], LV_GRAD_DIR_VER, LV_PART_MAIN);
-      lv_obj_set_style_bg_color(seaweed_objs[i], lv_color_hex(0x2ECC71), LV_PART_MAIN);      // Top (Lime Green)
-      lv_obj_set_style_bg_grad_color(seaweed_objs[i], lv_color_hex(0x0A3015), LV_PART_MAIN); // Bottom (Dark Forest)
+      // Styling gradients across the three segments:
+      // Base: Deep dark green to medium forest green
+      lv_obj_set_style_bg_grad_dir(seaweed_objs_base[i], LV_GRAD_DIR_VER, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(seaweed_objs_base[i], lv_color_hex(0x1F8A4C), LV_PART_MAIN);
+      lv_obj_set_style_bg_grad_color(seaweed_objs_base[i], lv_color_hex(0x0A3015), LV_PART_MAIN);
+      
+      // Mid: Forest green to glowing green
+      lv_obj_set_style_bg_grad_dir(seaweed_objs_mid[i], LV_GRAD_DIR_VER, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(seaweed_objs_mid[i], lv_color_hex(0x2ECC71), LV_PART_MAIN);
+      lv_obj_set_style_bg_grad_color(seaweed_objs_mid[i], lv_color_hex(0x1F8A4C), LV_PART_MAIN);
+      
+      // Top: Glowing green to pale neon green tip
+      lv_obj_set_style_bg_grad_dir(seaweed_objs_top[i], LV_GRAD_DIR_VER, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(seaweed_objs_top[i], lv_color_hex(0x58D68D), LV_PART_MAIN);
+      lv_obj_set_style_bg_grad_color(seaweed_objs_top[i], lv_color_hex(0x2ECC71), LV_PART_MAIN);
     }
     
     // Configure crab
@@ -199,11 +281,37 @@ class Aquarium {
     lv_obj_set_style_text_color(tap_obj, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_add_flag(tap_obj, LV_OBJ_FLAG_HIDDEN);
     
-    // Configure castle ruins ornament (Ancient Stone Grey)
-    lv_obj_set_style_text_color(castle_obj, lv_color_hex(0x7F8C8D), LV_PART_MAIN);
+    // Configure Castle Components styling
+    // Keep & Towers: Slate grey stone
+    lv_obj_set_style_bg_color(castle_keep_obj, lv_color_hex(0x5D6D7E), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(castle_tower_l_obj, lv_color_hex(0x5D6D7E), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(castle_tower_r_obj, lv_color_hex(0x5D6D7E), LV_PART_MAIN);
+    // Roofs: Deep Crimson
+    lv_obj_set_style_bg_color(castle_roof_l_obj, lv_color_hex(0xB03A2E), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(castle_roof_r_obj, lv_color_hex(0xB03A2E), LV_PART_MAIN);
+    // Gate: Dark Slate
+    lv_obj_set_style_bg_color(castle_gate_obj, lv_color_hex(0x1A252F), LV_PART_MAIN);
+    
+    // Configure Treasure Chest Components styling
+    // Body & Lid: Deep Rich Brown
+    lv_obj_set_style_bg_color(chest_body_obj, lv_color_hex(0x6E473B), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(chest_lid_obj, lv_color_hex(0x6E473B), LV_PART_MAIN);
+    // Gold trim / borders
+    lv_obj_set_style_border_color(chest_body_obj, lv_color_hex(0xD4AF37), LV_PART_MAIN);
+    lv_obj_set_style_border_color(chest_lid_obj, lv_color_hex(0xD4AF37), LV_PART_MAIN);
+    // Lock: Solid Gold
+    lv_obj_set_style_bg_color(chest_lock_obj, lv_color_hex(0xD4AF37), LV_PART_MAIN);
+    
+    // Style alert widgets
+    lv_obj_set_style_bg_color(alert_banner_obj, lv_color_hex(0xE74C3C), LV_PART_MAIN);
+    lv_obj_set_style_border_color(alert_banner_obj, lv_color_hex(0xF1C40F), LV_PART_MAIN);
+    lv_obj_set_style_text_color(alert_label_obj, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(alert_light_l_obj, lv_color_hex(0xF1C40F), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(alert_light_r_obj, lv_color_hex(0xF1C40F), LV_PART_MAIN);
   }
   
   void update(esphome::sensor::Sensor* fed_sensor) {
+    float t_sec = millis() / 1000.0f;
     // 1. Update disco mode background and fish coloring
     if (disco_mode) {
       disco_hue = (disco_hue + 3) % 360;
@@ -238,11 +346,51 @@ class Aquarium {
       }
     }
     
-    // 3. Sway Seaweed
-    float t_sec = millis() / 1000.0f;
+    // 2b. Update Alert State and Animation
+    if (alert_active) {
+      if (alert_duration_ms > 0 && (millis() - alert_start_time > alert_duration_ms)) {
+        clear_alert();
+      } else {
+        // Pulse banner background between red (0xE74C3C) and deep maroon (0x78281F)
+        float pulse = (std::sin(t_sec * 6.28f * 1.5f) + 1.0f) / 2.0f; // 1.5 Hz pulse
+        lv_color_t c = lv_color_mix(lv_color_hex(0xE74C3C), lv_color_hex(0x78281F), (uint8_t)(pulse * 255));
+        lv_obj_set_style_bg_color(alert_banner_obj, c, LV_PART_MAIN);
+        
+        // Blink left and right warning lights alternately at 4Hz
+        bool blink_state = ((int)(t_sec * 4.0f) % 2) == 0;
+        if (blink_state) {
+          lv_obj_set_style_bg_color(alert_light_l_obj, lv_color_hex(0xF1C40F), LV_PART_MAIN); // Yellow
+          lv_obj_set_style_bg_color(alert_light_r_obj, lv_color_hex(0xE74C3C), LV_PART_MAIN); // Red
+        } else {
+          lv_obj_set_style_bg_color(alert_light_l_obj, lv_color_hex(0xE74C3C), LV_PART_MAIN); // Red
+          lv_obj_set_style_bg_color(alert_light_r_obj, lv_color_hex(0xF1C40F), LV_PART_MAIN); // Yellow
+        }
+      }
+    }
+    
+    // 3. Sway Seaweed (organic multi-segment bending wave)
     for (auto& s : seaweed) {
-      float sway = std::sin(t_sec * s.speed + s.phase) * 5.0f;
-      lv_obj_set_x(s.obj, (int)(s.base_x + sway));
+      float sway_base = std::sin(t_sec * s.speed + s.phase) * 1.5f;
+      float sway_mid = std::sin(t_sec * s.speed + s.phase + 0.3f) * 4.0f;
+      float sway_top = std::sin(t_sec * s.speed + s.phase + 0.6f) * 8.0f;
+      
+      float x_base = s.base_x + sway_base;
+      float x_mid = s.base_x + sway_mid + (s.base_width - s.mid_width) / 2.0f;
+      float x_top = s.base_x + sway_top + (s.base_width - s.top_width) / 2.0f;
+      
+      lv_obj_set_x(s.base_obj, (int)x_base);
+      lv_obj_set_x(s.mid_obj, (int)x_mid);
+      lv_obj_set_x(s.top_obj, (int)x_top);
+    }
+    
+    // 3b. Update Chest Lid opening state & bubble vibration
+    if (bubbler_on) {
+      // Bobbing lid when open
+      float vibration = std::sin(t_sec * 18.0f) * 1.0f;
+      lv_obj_set_pos(chest_lid_obj, 353, 283 + (int)vibration);
+    } else {
+      // Sealed lid resting on body
+      lv_obj_set_pos(chest_lid_obj, 350, 290);
     }
     
     // 4. Update Fish
@@ -250,6 +398,8 @@ class Aquarium {
       float speed_mult = 1.0f;
       if (panic_timer > 0) {
         speed_mult = 3.2f;
+      } else if (alert_active) {
+        speed_mult = 2.6f; // Alert speed boost!
       } else if (f.state == 2) {
         speed_mult = 2.0f; // chasing food
       }
@@ -288,6 +438,12 @@ class Aquarium {
         }
       } else {
         f.state = 1; // Panicked
+      }
+      
+      // Add extra scatter/jitter when alert is active
+      if (alert_active && (rand() % 100 < 10)) {
+        f.vx += ((rand() % 100) / 50.0f - 1.0f) * 0.8f;
+        f.vy += ((rand() % 100) / 50.0f - 1.0f) * 0.6f;
       }
       
       // Update fish position with depth-based parallax speed multiplier
@@ -417,11 +573,11 @@ class Aquarium {
     
     // 6. Update Bubbles
     if (bubbler_on && (rand() % 100 < 18)) {
-      // Spawn bubble at the bubble generator (located at x=370, y=295)
+      // Spawn bubble at the treasure chest (located at x=350, y=300)
       for (auto& b : bubbles) {
         if (!b.active) {
           b.active = true;
-          b.x = 365.0f + (rand() % 15);
+          b.x = 358.0f + (rand() % 14);
           b.y = 295.0f;
           b.speed = 1.2f + ((rand() % 100) / 100.0f) * 1.6f;
           lv_obj_clear_flag(b.obj, LV_OBJ_FLAG_HIDDEN);
@@ -513,6 +669,49 @@ class Aquarium {
         lv_obj_add_flag(shark_obj, LV_OBJ_FLAG_HIDDEN);
       }
     }
+  }
+  
+  void trigger_alert(std::string message, int duration_seconds) {
+    alert_active = true;
+    alert_msg = message;
+    alert_start_time = millis();
+    alert_duration_ms = duration_seconds * 1000;
+    
+    // Set label text
+    if (alert_label_obj != nullptr) {
+      lv_label_set_text(alert_label_obj, message.c_str());
+      // Center the label text roughly in the banner
+      int label_len = message.length();
+      int start_x = 240 - (label_len * 4); // Montserrat 14 width factor
+      if (start_x < 90) start_x = 90;
+      lv_obj_set_x(alert_label_obj, start_x);
+    }
+    
+    // Show components
+    if (alert_banner_obj != nullptr) lv_obj_clear_flag(alert_banner_obj, LV_OBJ_FLAG_HIDDEN);
+    if (alert_label_obj != nullptr) lv_obj_clear_flag(alert_label_obj, LV_OBJ_FLAG_HIDDEN);
+    if (alert_light_l_obj != nullptr) lv_obj_clear_flag(alert_light_l_obj, LV_OBJ_FLAG_HIDDEN);
+    if (alert_light_r_obj != nullptr) lv_obj_clear_flag(alert_light_r_obj, LV_OBJ_FLAG_HIDDEN);
+    
+    // Startle fish (make them scatter immediately)
+    for (auto& f : fish) {
+      float angle = ((rand() % 360) / 180.0f) * 3.14159f;
+      float speed = 4.0f + (rand() % 100) / 33.0f; // Fast scatter
+      f.vx = cos(angle) * speed;
+      f.vy = sin(angle) * speed;
+      f.facing_right = f.vx > 0;
+    }
+  }
+  
+  void clear_alert() {
+    alert_active = false;
+    alert_msg = "";
+    
+    // Hide components
+    if (alert_banner_obj != nullptr) lv_obj_add_flag(alert_banner_obj, LV_OBJ_FLAG_HIDDEN);
+    if (alert_label_obj != nullptr) lv_obj_add_flag(alert_label_obj, LV_OBJ_FLAG_HIDDEN);
+    if (alert_light_l_obj != nullptr) lv_obj_add_flag(alert_light_l_obj, LV_OBJ_FLAG_HIDDEN);
+    if (alert_light_r_obj != nullptr) lv_obj_add_flag(alert_light_r_obj, LV_OBJ_FLAG_HIDDEN);
   }
   
   void feed() {
