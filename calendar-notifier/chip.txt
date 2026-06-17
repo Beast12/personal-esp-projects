@@ -1,0 +1,21 @@
+[0;33mWarning:[0m DEPRECATED: 'esptool.py' is deprecated. Please use 'esptool' instead. The '.py' suffix will be removed in a future major release.
+[0;33mWarning:[0m Deprecated: Command 'chip_id' is deprecated. Use 'chip-id' instead.
+esptool v5.1.0
+Serial port /dev/ttyACM1:
+Connecting...
+Detecting chip type... ESP32-S3
+[1A[2K[1A[2K[1A[2KConnected to ESP32-S3 on /dev/ttyACM1:
+Chip type:          ESP32-S3 (QFN56) (revision v0.2)
+Features:           Wi-Fi, BT 5 (LE), Dual Core + LP Core, 240MHz, Embedded PSRAM 16MB (AP_1v8)
+Crystal frequency:  40MHz
+USB mode:           USB-Serial/JTAG
+MAC:                3c:84:27:05:a1:14
+
+Uploading stub flasher...
+Running stub flasher...
+[1A[2K[1A[2KStub flasher running.
+
+[0;33mWarning:[0m ESP32-S3 has no chip ID. Reading MAC address instead.
+MAC:                3c:84:27:05:a1:14
+
+Hard resetting via RTS pin...

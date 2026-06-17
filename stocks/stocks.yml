@@ -1,0 +1,899 @@
+esphome:
+  name: stocks-panel
+  on_boot:
+    priority: -100
+    then:
+      - wait_until:
+          wifi.connected:
+      - script.execute: fetch_all_stocks
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# --- HTTP Request (for fetching stock JSON) ---
+http_request:
+  useragent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  timeout: 10s
+  verify_ssl: false
+
+# --- Web Server (HTTP Config Page) ---
+web_server:
+  port: 80
+
+# --- Time component (for header updates) ---
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "CET-1CEST,M3.5.0,M10.5.0/3"
+
+# --- JC3248W535C_I hardware (QSPI + AXS15231) ---
+spi:
+  - type: quad
+    clk_pin: 47
+    data_pins: [21, 48, 40, 39]
+
+i2c:
+  - id: i2c_bus
+    sda: 4
+    scl: 8
+
+output:
+  - platform: ledc
+    id: gpio_backlight_pwm
+    pin: 1
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: gpio_backlight_pwm
+    restore_mode: ALWAYS_ON
+
+display:
+  - platform: qspi_dbi
+    id: lcd
+    dimensions:
+      width: 320
+      height: 480
+    rotation: 90
+    model: CUSTOM
+    data_rate: 40MHz
+    cs_pin:
+      number: 45
+      ignore_strapping_warning: true
+    draw_from_origin: true
+    update_interval: never
+    auto_clear_enabled: false
+
+touchscreen:
+  - platform: axs15231
+    id: touch
+    i2c_id: i2c_bus
+    address: 0x3B
+    transform:
+      swap_xy: true
+      mirror_x: true
+    update_interval: 50ms
+    touch_timeout: 50ms
+
+# --- Fonts ---
+font:
+  - file: "gfonts://Roboto"
+    id: f_title
+    size: 28
+  - file: "gfonts://Roboto Mono"
+    id: f_card_title
+    size: 22
+  - file: "gfonts://Roboto Mono"
+    id: f_price
+    size: 24
+  - file: "gfonts://Roboto"
+    id: f_change
+    size: 16
+  - file: "gfonts://Roboto"
+    id: f_small
+    size: 14
+
+# --- User settings: Stock Symbols (persisted in flash) ---
+text:
+  - platform: template
+    id: stock_symbol_1
+    name: "Stock 1 Symbol"
+    mode: text
+    min_length: 0
+    max_length: 10
+    initial_value: "AAPL"
+    restore_value: true
+    set_action:
+      then:
+        - lambda: |-
+            std::string sym = x;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+            id(stock_symbol_1).publish_state(sym);
+    on_value:
+      - script.execute: fetch_stock_1
+  - platform: template
+    id: stock_symbol_2
+    name: "Stock 2 Symbol"
+    mode: text
+    min_length: 0
+    max_length: 10
+    initial_value: "GOOG"
+    restore_value: true
+    set_action:
+      then:
+        - lambda: |-
+            std::string sym = x;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+            id(stock_symbol_2).publish_state(sym);
+    on_value:
+      - script.execute: fetch_stock_2
+  - platform: template
+    id: stock_symbol_3
+    name: "Stock 3 Symbol"
+    mode: text
+    min_length: 0
+    max_length: 10
+    initial_value: "MSFT"
+    restore_value: true
+    set_action:
+      then:
+        - lambda: |-
+            std::string sym = x;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+            id(stock_symbol_3).publish_state(sym);
+    on_value:
+      - script.execute: fetch_stock_3
+  - platform: template
+    id: stock_symbol_4
+    name: "Stock 4 Symbol"
+    mode: text
+    min_length: 0
+    max_length: 10
+    initial_value: "NVDA"
+    restore_value: true
+    set_action:
+      then:
+        - lambda: |-
+            std::string sym = x;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+            id(stock_symbol_4).publish_state(sym);
+    on_value:
+      - script.execute: fetch_stock_4
+
+# --- Sensors: Parsed Stock Metrics ---
+sensor:
+  - platform: template
+    id: stock_1_price
+    name: "Stock 1 Price"
+    unit_of_measurement: "$"
+    accuracy_decimals: 2
+  - platform: template
+    id: stock_1_change
+    name: "Stock 1 Change"
+    accuracy_decimals: 2
+  - platform: template
+    id: stock_1_pct_change
+    name: "Stock 1 Pct Change"
+    unit_of_measurement: "%"
+    accuracy_decimals: 2
+
+  - platform: template
+    id: stock_2_price
+    name: "Stock 2 Price"
+    unit_of_measurement: "$"
+    accuracy_decimals: 2
+  - platform: template
+    id: stock_2_change
+    name: "Stock 2 Change"
+    accuracy_decimals: 2
+  - platform: template
+    id: stock_2_pct_change
+    name: "Stock 2 Pct Change"
+    unit_of_measurement: "%"
+    accuracy_decimals: 2
+
+  - platform: template
+    id: stock_3_price
+    name: "Stock 3 Price"
+    unit_of_measurement: "$"
+    accuracy_decimals: 2
+  - platform: template
+    id: stock_3_change
+    name: "Stock 3 Change"
+    accuracy_decimals: 2
+  - platform: template
+    id: stock_3_pct_change
+    name: "Stock 3 Pct Change"
+    unit_of_measurement: "%"
+    accuracy_decimals: 2
+
+  - platform: template
+    id: stock_4_price
+    name: "Stock 4 Price"
+    unit_of_measurement: "$"
+    accuracy_decimals: 2
+  - platform: template
+    id: stock_4_change
+    name: "Stock 4 Change"
+    accuracy_decimals: 2
+  - platform: template
+    id: stock_4_pct_change
+    name: "Stock 4 Pct Change"
+    unit_of_measurement: "%"
+    accuracy_decimals: 2
+
+# --- LVGL User Interface ---
+lvgl:
+  theme:
+    obj:
+      bg_color: 0x0B1320
+      text_color: 0xE6EDF7
+  pages:
+    - id: main_page
+      widgets:
+        - obj:
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            bg_color: 0x0B1320
+            bg_opa: COVER
+            border_width: 0
+            radius: 0
+
+        - label:
+            id: main_title
+            text: "STOCK TICKERS"
+            x: 15
+            y: 10
+            text_font: f_title
+            text_color: 0x5FA8FF
+
+        - label:
+            id: update_status
+            text: "Last Update: Loading..."
+            x: 310
+            y: 18
+            text_font: f_small
+            text_color: 0x8AA0B8
+
+        # --- Stock Card 1 ---
+        - obj:
+            id: card_1
+            x: 15
+            y: 50
+            width: 220
+            height: 120
+            bg_color: 0x142035
+            border_color: 0x2A3E5C
+            border_width: 1
+            radius: 10
+            widgets:
+              - label:
+                  id: sym_1
+                  text: "---"
+                  x: 12
+                  y: 10
+                  text_font: f_card_title
+                  text_color: 0xE6EDF7
+              - label:
+                  id: price_1
+                  text: "---"
+                  x: 12
+                  y: 48
+                  text_font: f_price
+                  text_color: 0xE6EDF7
+              - label:
+                  id: chg_1
+                  text: "---"
+                  x: 12
+                  y: 88
+                  text_font: f_change
+                  text_color: 0x8AA0B8
+
+        # --- Stock Card 2 ---
+        - obj:
+            id: card_2
+            x: 245
+            y: 50
+            width: 220
+            height: 120
+            bg_color: 0x142035
+            border_color: 0x2A3E5C
+            border_width: 1
+            radius: 10
+            widgets:
+              - label:
+                  id: sym_2
+                  text: "---"
+                  x: 12
+                  y: 10
+                  text_font: f_card_title
+                  text_color: 0xE6EDF7
+              - label:
+                  id: price_2
+                  text: "---"
+                  x: 12
+                  y: 48
+                  text_font: f_price
+                  text_color: 0xE6EDF7
+              - label:
+                  id: chg_2
+                  text: "---"
+                  x: 12
+                  y: 88
+                  text_font: f_change
+                  text_color: 0x8AA0B8
+
+        # --- Stock Card 3 ---
+        - obj:
+            id: card_3
+            x: 15
+            y: 185
+            width: 220
+            height: 120
+            bg_color: 0x142035
+            border_color: 0x2A3E5C
+            border_width: 1
+            radius: 10
+            widgets:
+              - label:
+                  id: sym_3
+                  text: "---"
+                  x: 12
+                  y: 10
+                  text_font: f_card_title
+                  text_color: 0xE6EDF7
+              - label:
+                  id: price_3
+                  text: "---"
+                  x: 12
+                  y: 48
+                  text_font: f_price
+                  text_color: 0xE6EDF7
+              - label:
+                  id: chg_3
+                  text: "---"
+                  x: 12
+                  y: 88
+                  text_font: f_change
+                  text_color: 0x8AA0B8
+
+        # --- Stock Card 4 ---
+        - obj:
+            id: card_4
+            x: 245
+            y: 185
+            width: 220
+            height: 120
+            bg_color: 0x142035
+            border_color: 0x2A3E5C
+            border_width: 1
+            radius: 10
+            widgets:
+              - label:
+                  id: sym_4
+                  text: "---"
+                  x: 12
+                  y: 10
+                  text_font: f_card_title
+                  text_color: 0xE6EDF7
+              - label:
+                  id: price_4
+                  text: "---"
+                  x: 12
+                  y: 48
+                  text_font: f_price
+                  text_color: 0xE6EDF7
+              - label:
+                  id: chg_4
+                  text: "---"
+                  x: 12
+                  y: 88
+                  text_font: f_change
+                  text_color: 0x8AA0B8
+
+# --- Periodic UI Refresh Loop ---
+interval:
+  - interval: 2s
+    then:
+      - lambda: |-
+          auto update_card = [](const std::string& symbol, float price, float change, float pct_change,
+                                lv_obj_t* sym_lbl, lv_obj_t* price_lbl, lv_obj_t* chg_lbl, lv_obj_t* card_obj) {
+            std::string sym = symbol;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            
+            if (sym.empty()) {
+              lv_label_set_text(sym_lbl, "EMPTY");
+              lv_label_set_text(price_lbl, "---");
+              lv_label_set_text(chg_lbl, "Edit in Web UI");
+              lv_obj_set_style_border_color(card_obj, lv_color_hex(0x2A3E5C), LV_PART_MAIN);
+              return;
+            }
+            
+            lv_label_set_text(sym_lbl, sym.c_str());
+            
+            if (std::isnan(price)) {
+              lv_label_set_text(price_lbl, "---");
+              lv_label_set_text(chg_lbl, "Loading/Error");
+              lv_obj_set_style_border_color(card_obj, lv_color_hex(0x2A3E5C), LV_PART_MAIN);
+              return;
+            }
+            
+            char price_buf[32];
+            snprintf(price_buf, sizeof(price_buf), "$%.2f", price);
+            lv_label_set_text(price_lbl, price_buf);
+            
+            char chg_buf[64];
+            const char* sign = (change >= 0.0f) ? "+" : "";
+            snprintf(chg_buf, sizeof(chg_buf), "%s%.2f (%s%.2f%%)", sign, change, sign, pct_change);
+            lv_label_set_text(chg_lbl, chg_buf);
+            
+            uint32_t color = (change >= 0.0f) ? 0x2ECC71 : 0xE74C3C;
+            lv_obj_set_style_text_color(chg_lbl, lv_color_hex(color), LV_PART_MAIN);
+            lv_obj_set_style_border_color(card_obj, lv_color_hex(color), LV_PART_MAIN);
+          };
+          
+          update_card(id(stock_symbol_1).state, id(stock_1_price).state, id(stock_1_change).state, id(stock_1_pct_change).state,
+                      id(sym_1), id(price_1), id(chg_1), id(card_1));
+          update_card(id(stock_symbol_2).state, id(stock_2_price).state, id(stock_2_change).state, id(stock_2_pct_change).state,
+                      id(sym_2), id(price_2), id(chg_2), id(card_2));
+          update_card(id(stock_symbol_3).state, id(stock_3_price).state, id(stock_3_change).state, id(stock_3_pct_change).state,
+                      id(sym_3), id(price_3), id(chg_3), id(card_3));
+          update_card(id(stock_symbol_4).state, id(stock_4_price).state, id(stock_4_change).state, id(stock_4_pct_change).state,
+                      id(sym_4), id(price_4), id(chg_4), id(card_4));
+
+          if (id(sntp_time).now().is_valid()) {
+            char time_buf[64];
+            snprintf(time_buf, sizeof(time_buf), "Last Update: %02d:%02d", id(sntp_time).now().hour, id(sntp_time).now().minute);
+            lv_label_set_text(id(update_status), time_buf);
+          } else {
+            lv_label_set_text(id(update_status), "Last Update: Active");
+          }
+
+  # Query stocks every 5 minutes
+  - interval: 5min
+    then:
+      - script.execute: fetch_all_stocks
+
+# --- Scripts to Query Stock Info ---
+script:
+  - id: fetch_all_stocks
+    mode: restart
+    then:
+      - script.execute: fetch_stock_1
+      - script.wait: fetch_stock_1
+      - delay: 1s
+      - script.execute: fetch_stock_2
+      - script.wait: fetch_stock_2
+      - delay: 1s
+      - script.execute: fetch_stock_3
+      - script.wait: fetch_stock_3
+      - delay: 1s
+      - script.execute: fetch_stock_4
+      - script.wait: fetch_stock_4
+
+  - id: fetch_stock_1
+    mode: restart
+    then:
+      - lambda: |-
+          std::string sym = id(stock_symbol_1).state;
+          std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+          sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+          sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+          if (sym.empty()) {
+            id(stock_1_price).publish_state(NAN);
+            id(stock_1_change).publish_state(NAN);
+            id(stock_1_pct_change).publish_state(NAN);
+            id(fetch_stock_1).stop();
+          }
+      - http_request.get:
+          url: !lambda |-
+            std::string sym = id(stock_symbol_1).state;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+            return "https://query1.finance.yahoo.com/v8/finance/chart/" + sym + "?interval=1d&range=1d";
+          capture_response: true
+          max_response_buffer_size: 16384
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code == 200) {
+                    bool success = json::parse_json(body, [](JsonObject root) -> bool {
+                      JsonObject chart = root["chart"];
+                      if (chart.isNull()) return false;
+                      JsonArray result = chart["result"];
+                      if (result.isNull() || result.size() == 0) return false;
+                      JsonObject meta = result[0]["meta"];
+                      if (meta.isNull()) return false;
+                      
+                      if (meta["regularMarketPrice"].isNull() || meta["chartPreviousClose"].isNull()) {
+                        return false;
+                      }
+                      
+                      float price = meta["regularMarketPrice"].as<float>();
+                      float prev_close = meta["chartPreviousClose"].as<float>();
+                      float change = price - prev_close;
+                      float pct_change = (change / prev_close) * 100.0f;
+                      
+                      id(stock_1_price).publish_state(price);
+                      id(stock_1_change).publish_state(change);
+                      id(stock_1_pct_change).publish_state(pct_change);
+                      return true;
+                    });
+                    if (!success) {
+                      ESP_LOGW("stock", "Failed to parse Stock 1 JSON");
+                      id(stock_1_price).publish_state(NAN);
+                    }
+                  } else {
+                    ESP_LOGW("stock", "Stock 1 request failed: %d", response->status_code);
+                    id(stock_1_price).publish_state(NAN);
+                    
+                    std::string sym = id(stock_symbol_1).state;
+                    if (response->status_code == 404 && sym.find('.') == std::string::npos) {
+                      ESP_LOGI("stock", "Stock 1 failed with 404. Attempting to search for suffix...");
+                      id(search_stock_1).execute();
+                    }
+                  }
+
+  - id: search_stock_1
+    mode: restart
+    then:
+      - http_request.get:
+          url: !lambda |-
+            std::string sym = id(stock_symbol_1).state;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+            return "https://query1.finance.yahoo.com/v1/finance/search?q=" + sym;
+          capture_response: true
+          max_response_buffer_size: 16384
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code == 200) {
+                    json::parse_json(body, [](JsonObject root) -> bool {
+                      JsonArray quotes = root["quotes"];
+                      if (quotes.isNull() || quotes.size() == 0) return false;
+                      JsonObject first_quote = quotes[0];
+                      if (first_quote.isNull()) return false;
+                      const char* resolved_sym = first_quote["symbol"];
+                      if (resolved_sym != nullptr) {
+                        std::string res_str = resolved_sym;
+                        std::string current_sym = id(stock_symbol_1).state;
+                        if (res_str != current_sym) {
+                          ESP_LOGI("stock", "Resolved symbol %s to %s", current_sym.c_str(), res_str.c_str());
+                          id(stock_symbol_1).publish_state(res_str);
+                        }
+                      }
+                      return true;
+                    });
+                  } else {
+                    ESP_LOGW("stock", "Ticker search 1 failed: %d", response->status_code);
+                  }
+
+  - id: fetch_stock_2
+    mode: restart
+    then:
+      - lambda: |-
+          std::string sym = id(stock_symbol_2).state;
+          std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+          sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+          sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+          if (sym.empty()) {
+            id(stock_2_price).publish_state(NAN);
+            id(stock_2_change).publish_state(NAN);
+            id(stock_2_pct_change).publish_state(NAN);
+            id(fetch_stock_2).stop();
+          }
+      - http_request.get:
+          url: !lambda |-
+            std::string sym = id(stock_symbol_2).state;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+            return "https://query1.finance.yahoo.com/v8/finance/chart/" + sym + "?interval=1d&range=1d";
+          capture_response: true
+          max_response_buffer_size: 16384
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code == 200) {
+                    bool success = json::parse_json(body, [](JsonObject root) -> bool {
+                      JsonObject chart = root["chart"];
+                      if (chart.isNull()) return false;
+                      JsonArray result = chart["result"];
+                      if (result.isNull() || result.size() == 0) return false;
+                      JsonObject meta = result[0]["meta"];
+                      if (meta.isNull()) return false;
+                      
+                      if (meta["regularMarketPrice"].isNull() || meta["chartPreviousClose"].isNull()) {
+                        return false;
+                      }
+                      
+                      float price = meta["regularMarketPrice"].as<float>();
+                      float prev_close = meta["chartPreviousClose"].as<float>();
+                      float change = price - prev_close;
+                      float pct_change = (change / prev_close) * 100.0f;
+                      
+                      id(stock_2_price).publish_state(price);
+                      id(stock_2_change).publish_state(change);
+                      id(stock_2_pct_change).publish_state(pct_change);
+                      return true;
+                    });
+                    if (!success) {
+                      ESP_LOGW("stock", "Failed to parse Stock 2 JSON");
+                      id(stock_2_price).publish_state(NAN);
+                    }
+                  } else {
+                    ESP_LOGW("stock", "Stock 2 request failed: %d", response->status_code);
+                    id(stock_2_price).publish_state(NAN);
+                    
+                    std::string sym = id(stock_symbol_2).state;
+                    if (response->status_code == 404 && sym.find('.') == std::string::npos) {
+                      ESP_LOGI("stock", "Stock 2 failed with 404. Attempting to search for suffix...");
+                      id(search_stock_2).execute();
+                    }
+                  }
+
+  - id: search_stock_2
+    mode: restart
+    then:
+      - http_request.get:
+          url: !lambda |-
+            std::string sym = id(stock_symbol_2).state;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+            return "https://query1.finance.yahoo.com/v1/finance/search?q=" + sym;
+          capture_response: true
+          max_response_buffer_size: 16384
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code == 200) {
+                    json::parse_json(body, [](JsonObject root) -> bool {
+                      JsonArray quotes = root["quotes"];
+                      if (quotes.isNull() || quotes.size() == 0) return false;
+                      JsonObject first_quote = quotes[0];
+                      if (first_quote.isNull()) return false;
+                      const char* resolved_sym = first_quote["symbol"];
+                      if (resolved_sym != nullptr) {
+                        std::string res_str = resolved_sym;
+                        std::string current_sym = id(stock_symbol_2).state;
+                        if (res_str != current_sym) {
+                          ESP_LOGI("stock", "Resolved symbol %s to %s", current_sym.c_str(), res_str.c_str());
+                          id(stock_symbol_2).publish_state(res_str);
+                        }
+                      }
+                      return true;
+                    });
+                  } else {
+                    ESP_LOGW("stock", "Ticker search 2 failed: %d", response->status_code);
+                  }
+
+  - id: fetch_stock_3
+    mode: restart
+    then:
+      - lambda: |-
+          std::string sym = id(stock_symbol_3).state;
+          std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+          sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+          sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+          if (sym.empty()) {
+            id(stock_3_price).publish_state(NAN);
+            id(stock_3_change).publish_state(NAN);
+            id(stock_3_pct_change).publish_state(NAN);
+            id(fetch_stock_3).stop();
+          }
+      - http_request.get:
+          url: !lambda |-
+            std::string sym = id(stock_symbol_3).state;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+            return "https://query1.finance.yahoo.com/v8/finance/chart/" + sym + "?interval=1d&range=1d";
+          capture_response: true
+          max_response_buffer_size: 16384
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code == 200) {
+                    bool success = json::parse_json(body, [](JsonObject root) -> bool {
+                      JsonObject chart = root["chart"];
+                      if (chart.isNull()) return false;
+                      JsonArray result = chart["result"];
+                      if (result.isNull() || result.size() == 0) return false;
+                      JsonObject meta = result[0]["meta"];
+                      if (meta.isNull()) return false;
+                      
+                      if (meta["regularMarketPrice"].isNull() || meta["chartPreviousClose"].isNull()) {
+                        return false;
+                      }
+                      
+                      float price = meta["regularMarketPrice"].as<float>();
+                      float prev_close = meta["chartPreviousClose"].as<float>();
+                      float change = price - prev_close;
+                      float pct_change = (change / prev_close) * 100.0f;
+                      
+                      id(stock_3_price).publish_state(price);
+                      id(stock_3_change).publish_state(change);
+                      id(stock_3_pct_change).publish_state(pct_change);
+                      return true;
+                    });
+                    if (!success) {
+                      ESP_LOGW("stock", "Failed to parse Stock 3 JSON");
+                      id(stock_3_price).publish_state(NAN);
+                    }
+                  } else {
+                    ESP_LOGW("stock", "Stock 3 request failed: %d", response->status_code);
+                    id(stock_3_price).publish_state(NAN);
+                    
+                    std::string sym = id(stock_symbol_3).state;
+                    if (response->status_code == 404 && sym.find('.') == std::string::npos) {
+                      ESP_LOGI("stock", "Stock 3 failed with 404. Attempting to search for suffix...");
+                      id(search_stock_3).execute();
+                    }
+                  }
+
+  - id: search_stock_3
+    mode: restart
+    then:
+      - http_request.get:
+          url: !lambda |-
+            std::string sym = id(stock_symbol_3).state;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+            return "https://query1.finance.yahoo.com/v1/finance/search?q=" + sym;
+          capture_response: true
+          max_response_buffer_size: 16384
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code == 200) {
+                    json::parse_json(body, [](JsonObject root) -> bool {
+                      JsonArray quotes = root["quotes"];
+                      if (quotes.isNull() || quotes.size() == 0) return false;
+                      JsonObject first_quote = quotes[0];
+                      if (first_quote.isNull()) return false;
+                      const char* resolved_sym = first_quote["symbol"];
+                      if (resolved_sym != nullptr) {
+                        std::string res_str = resolved_sym;
+                        std::string current_sym = id(stock_symbol_3).state;
+                        if (res_str != current_sym) {
+                          ESP_LOGI("stock", "Resolved symbol %s to %s", current_sym.c_str(), res_str.c_str());
+                          id(stock_symbol_3).publish_state(res_str);
+                        }
+                      }
+                      return true;
+                    });
+                  } else {
+                    ESP_LOGW("stock", "Ticker search 3 failed: %d", response->status_code);
+                  }
+
+  - id: fetch_stock_4
+    mode: restart
+    then:
+      - lambda: |-
+          std::string sym = id(stock_symbol_4).state;
+          std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+          sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+          sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+          if (sym.empty()) {
+            id(stock_4_price).publish_state(NAN);
+            id(stock_4_change).publish_state(NAN);
+            id(stock_4_pct_change).publish_state(NAN);
+            id(fetch_stock_4).stop();
+          }
+      - http_request.get:
+          url: !lambda |-
+            std::string sym = id(stock_symbol_4).state;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+            return "https://query1.finance.yahoo.com/v8/finance/chart/" + sym + "?interval=1d&range=1d";
+          capture_response: true
+          max_response_buffer_size: 16384
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code == 200) {
+                    bool success = json::parse_json(body, [](JsonObject root) -> bool {
+                      JsonObject chart = root["chart"];
+                      if (chart.isNull()) return false;
+                      JsonArray result = chart["result"];
+                      if (result.isNull() || result.size() == 0) return false;
+                      JsonObject meta = result[0]["meta"];
+                      if (meta.isNull()) return false;
+                      
+                      if (meta["regularMarketPrice"].isNull() || meta["chartPreviousClose"].isNull()) {
+                        return false;
+                      }
+                      
+                      float price = meta["regularMarketPrice"].as<float>();
+                      float prev_close = meta["chartPreviousClose"].as<float>();
+                      float change = price - prev_close;
+                      float pct_change = (change / prev_close) * 100.0f;
+                      
+                      id(stock_4_price).publish_state(price);
+                      id(stock_4_change).publish_state(change);
+                      id(stock_4_pct_change).publish_state(pct_change);
+                      return true;
+                    });
+                    if (!success) {
+                      ESP_LOGW("stock", "Failed to parse Stock 4 JSON");
+                      id(stock_4_price).publish_state(NAN);
+                    }
+                  } else {
+                    ESP_LOGW("stock", "Stock 4 request failed: %d", response->status_code);
+                    id(stock_4_price).publish_state(NAN);
+                    
+                    std::string sym = id(stock_symbol_4).state;
+                    if (response->status_code == 404 && sym.find('.') == std::string::npos) {
+                      ESP_LOGI("stock", "Stock 4 failed with 404. Attempting to search for suffix...");
+                      id(search_stock_4).execute();
+                    }
+                  }
+
+  - id: search_stock_4
+    mode: restart
+    then:
+      - http_request.get:
+          url: !lambda |-
+            std::string sym = id(stock_symbol_4).state;
+            std::transform(sym.begin(), sym.end(), sym.begin(), ::toupper);
+            sym.erase(sym.begin(), std::find_if(sym.begin(), sym.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+            sym.erase(std::find_if(sym.rbegin(), sym.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), sym.end());
+            return "https://query1.finance.yahoo.com/v1/finance/search?q=" + sym;
+          capture_response: true
+          max_response_buffer_size: 16384
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code == 200) {
+                    json::parse_json(body, [](JsonObject root) -> bool {
+                      JsonArray quotes = root["quotes"];
+                      if (quotes.isNull() || quotes.size() == 0) return false;
+                      JsonObject first_quote = quotes[0];
+                      if (first_quote.isNull()) return false;
+                      const char* resolved_sym = first_quote["symbol"];
+                      if (resolved_sym != nullptr) {
+                        std::string res_str = resolved_sym;
+                        std::string current_sym = id(stock_symbol_4).state;
+                        if (res_str != current_sym) {
+                          ESP_LOGI("stock", "Resolved symbol %s to %s", current_sym.c_str(), res_str.c_str());
+                          id(stock_symbol_4).publish_state(res_str);
+                        }
+                      }
+                      return true;
+                    });
+                  } else {
+                    ESP_LOGW("stock", "Ticker search 4 failed: %d", response->status_code);
+                  }
