@@ -7,9 +7,18 @@ esphome:
     then:
       - lambda: |-
           static std::vector<lv_obj_t*> fish_objs = {
-            id(fish_0), id(fish_1), id(fish_2), id(fish_3),
-            id(fish_4), id(fish_5), id(fish_6), id(fish_7),
-            id(fish_8), id(fish_9), id(fish_10), id(fish_11)
+            id(fish_0_body), id(fish_0_tail), id(fish_0_eye),
+            id(fish_1_body), id(fish_1_tail), id(fish_1_eye),
+            id(fish_2_body), id(fish_2_tail), id(fish_2_eye),
+            id(fish_3_body), id(fish_3_tail), id(fish_3_eye),
+            id(fish_4_body), id(fish_4_tail), id(fish_4_eye),
+            id(fish_5_body), id(fish_5_tail), id(fish_5_eye),
+            id(fish_6_body), id(fish_6_tail), id(fish_6_eye),
+            id(fish_7_body), id(fish_7_tail), id(fish_7_eye),
+            id(fish_8_body), id(fish_8_tail), id(fish_8_eye),
+            id(fish_9_body), id(fish_9_tail), id(fish_9_eye),
+            id(fish_10_body), id(fish_10_tail), id(fish_10_eye),
+            id(fish_11_body), id(fish_11_tail), id(fish_11_eye)
           };
           static std::vector<lv_obj_t*> bubble_objs = {id(bubble_0), id(bubble_1), id(bubble_2), id(bubble_3), id(bubble_4), id(bubble_5), id(bubble_6), id(bubble_7)};
           static std::vector<lv_obj_t*> food_objs = {id(food_0), id(food_1), id(food_2), id(food_3), id(food_4)};
@@ -27,8 +36,19 @@ esphome:
             id(chest_body), id(chest_lid), id(chest_lock)
           };
           
+          static std::vector<lv_obj_t*> shark_parts = {
+            id(shark_body), id(shark_tail), id(shark_fin), id(shark_eye)
+          };
+          
           static std::vector<lv_obj_t*> alert_parts = {
             id(alert_banner), id(alert_label), id(alert_light_l), id(alert_light_r)
+          };
+          
+          static std::vector<lv_obj_t*> crab_parts = {
+            id(crab_body), id(crab_claw_l), id(crab_claw_r), id(crab_eye_l), id(crab_eye_r)
+          };
+          static std::vector<lv_obj_t*> jelly_parts = {
+            id(jelly_bell), id(jelly_tentacle_l), id(jelly_tentacle_c), id(jelly_tentacle_r)
           };
           
           global_aquarium.setup(
@@ -39,8 +59,9 @@ esphome:
             seaweed_objs_base,
             seaweed_objs_mid,
             seaweed_objs_top,
-            id(crab_bottom),
-            id(shark_predator),
+            crab_parts,
+            jelly_parts,
+            shark_parts,
             id(tap_indicator),
             castle_parts,
             chest_parts,
@@ -286,35 +307,62 @@ lvgl:
         - label: { id: food_3, text: "•", x: 0, y: 0, text_font: f_small }
         - label: { id: food_4, text: "•", x: 0, y: 0, text_font: f_small }
 
-        # 8. Crab crawler
-        - label:
-            id: crab_bottom
-            text: "(\\[o.o]/)"
-            x: 220
-            y: 295
-            text_font: f_card_title
+        # 8. Crab Vector Components
+        - obj: { id: crab_body, x: 220, y: 295, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: crab_claw_l, x: 220, y: 295, width: 10, height: 10, radius: 5, border_width: 0 }
+        - obj: { id: crab_claw_r, x: 220, y: 295, width: 10, height: 10, radius: 5, border_width: 0 }
+        - obj: { id: crab_eye_l, x: 220, y: 295, width: 4, height: 4, radius: 2, border_width: 0 }
+        - obj: { id: crab_eye_r, x: 220, y: 295, width: 4, height: 4, radius: 2, border_width: 0 }
 
-        # 10. Fish Labels (12 active fish of various depths)
-        - label: { id: fish_0, text: "><>", x: 0, y: 0, text_font: f_card_title }
-        - label: { id: fish_1, text: "><>", x: 0, y: 0, text_font: f_card_title }
-        - label: { id: fish_2, text: "><>", x: 0, y: 0, text_font: f_card_title }
-        - label: { id: fish_3, text: "><>", x: 0, y: 0, text_font: f_card_title }
-        - label: { id: fish_4, text: "><>", x: 0, y: 0, text_font: f_card_title }
-        - label: { id: fish_5, text: "><>", x: 0, y: 0, text_font: f_card_title }
-        - label: { id: fish_6, text: "><>", x: 0, y: 0, text_font: f_card_title }
-        - label: { id: fish_7, text: "><>", x: 0, y: 0, text_font: f_card_title }
-        - label: { id: fish_8, text: "><>", x: 0, y: 0, text_font: f_card_title }
-        - label: { id: fish_9, text: "><>", x: 0, y: 0, text_font: f_card_title }
-        - label: { id: fish_10, text: "><>", x: 0, y: 0, text_font: f_card_title }
-        - label: { id: fish_11, text: "><>", x: 0, y: 0, text_font: f_card_title }
+        # 9. Jellyfish Vector Components
+        - obj: { id: jelly_bell, x: 100, y: 100, width: 22, height: 16, radius: 8, border_width: 0 }
+        - obj: { id: jelly_tentacle_l, x: 100, y: 100, width: 2, height: 16, radius: 1, border_width: 0 }
+        - obj: { id: jelly_tentacle_c, x: 100, y: 100, width: 2, height: 20, radius: 1, border_width: 0 }
+        - obj: { id: jelly_tentacle_r, x: 100, y: 100, width: 2, height: 16, radius: 1, border_width: 0 }
 
-        # 11. Shark (predator)
-        - label:
-            id: shark_predator
-            text: "><((((((((o>"
-            x: -170
-            y: 120
-            text_font: f_title
+        # 10. Fish Vector Components (12 active fish, each has body, tail, eye)
+        - obj: { id: fish_0_body, x: 0, y: 0, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: fish_0_tail, x: 0, y: 0, width: 8, height: 8, radius: 4, border_width: 0 }
+        - obj: { id: fish_0_eye, x: 0, y: 0, width: 4, height: 4, radius: 2, border_width: 0 }
+        - obj: { id: fish_1_body, x: 0, y: 0, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: fish_1_tail, x: 0, y: 0, width: 8, height: 8, radius: 4, border_width: 0 }
+        - obj: { id: fish_1_eye, x: 0, y: 0, width: 4, height: 4, radius: 2, border_width: 0 }
+        - obj: { id: fish_2_body, x: 0, y: 0, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: fish_2_tail, x: 0, y: 0, width: 8, height: 8, radius: 4, border_width: 0 }
+        - obj: { id: fish_2_eye, x: 0, y: 0, width: 4, height: 4, radius: 2, border_width: 0 }
+        - obj: { id: fish_3_body, x: 0, y: 0, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: fish_3_tail, x: 0, y: 0, width: 8, height: 8, radius: 4, border_width: 0 }
+        - obj: { id: fish_3_eye, x: 0, y: 0, width: 4, height: 4, radius: 2, border_width: 0 }
+        - obj: { id: fish_4_body, x: 0, y: 0, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: fish_4_tail, x: 0, y: 0, width: 8, height: 8, radius: 4, border_width: 0 }
+        - obj: { id: fish_4_eye, x: 0, y: 0, width: 4, height: 4, radius: 2, border_width: 0 }
+        - obj: { id: fish_5_body, x: 0, y: 0, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: fish_5_tail, x: 0, y: 0, width: 8, height: 8, radius: 4, border_width: 0 }
+        - obj: { id: fish_5_eye, x: 0, y: 0, width: 4, height: 4, radius: 2, border_width: 0 }
+        - obj: { id: fish_6_body, x: 0, y: 0, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: fish_6_tail, x: 0, y: 0, width: 8, height: 8, radius: 4, border_width: 0 }
+        - obj: { id: fish_6_eye, x: 0, y: 0, width: 4, height: 4, radius: 2, border_width: 0 }
+        - obj: { id: fish_7_body, x: 0, y: 0, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: fish_7_tail, x: 0, y: 0, width: 8, height: 8, radius: 4, border_width: 0 }
+        - obj: { id: fish_7_eye, x: 0, y: 0, width: 4, height: 4, radius: 2, border_width: 0 }
+        - obj: { id: fish_8_body, x: 0, y: 0, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: fish_8_tail, x: 0, y: 0, width: 8, height: 8, radius: 4, border_width: 0 }
+        - obj: { id: fish_8_eye, x: 0, y: 0, width: 4, height: 4, radius: 2, border_width: 0 }
+        - obj: { id: fish_9_body, x: 0, y: 0, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: fish_9_tail, x: 0, y: 0, width: 8, height: 8, radius: 4, border_width: 0 }
+        - obj: { id: fish_9_eye, x: 0, y: 0, width: 4, height: 4, radius: 2, border_width: 0 }
+        - obj: { id: fish_10_body, x: 0, y: 0, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: fish_10_tail, x: 0, y: 0, width: 8, height: 8, radius: 4, border_width: 0 }
+        - obj: { id: fish_10_eye, x: 0, y: 0, width: 4, height: 4, radius: 2, border_width: 0 }
+        - obj: { id: fish_11_body, x: 0, y: 0, width: 24, height: 14, radius: 7, border_width: 0 }
+        - obj: { id: fish_11_tail, x: 0, y: 0, width: 8, height: 8, radius: 4, border_width: 0 }
+        - obj: { id: fish_11_eye, x: 0, y: 0, width: 4, height: 4, radius: 2, border_width: 0 }
+
+        # 11. Shark (predator) Vector Components
+        - obj: { id: shark_body, x: -170, y: 120, width: 90, height: 32, radius: 16, border_width: 0 }
+        - obj: { id: shark_tail, x: -170, y: 120, width: 22, height: 22, radius: 11, border_width: 0 }
+        - obj: { id: shark_fin, x: -170, y: 120, width: 18, height: 18, radius: 9, border_width: 0 }
+        - obj: { id: shark_eye, x: -170, y: 120, width: 6, height: 6, radius: 3, border_width: 0 }
 
         # 12. Tap Indicator
         - label:

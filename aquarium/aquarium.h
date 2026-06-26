@@ -8,7 +8,9 @@
 
 // Define structures for our aquarium actors
 struct FishState {
-  lv_obj_t* obj;
+  lv_obj_t* body_obj;
+  lv_obj_t* tail_obj;
+  lv_obj_t* eye_obj;
   float x;
   float y;
   float vx;
@@ -29,6 +31,19 @@ struct BubbleState {
   float y;
   float speed;
   bool active;
+};
+
+struct JellyfishState {
+  lv_obj_t* bell_obj;
+  lv_obj_t* tentacle_l;
+  lv_obj_t* tentacle_c;
+  lv_obj_t* tentacle_r;
+  float x;
+  float y;
+  float base_y;
+  float speed_x;
+  float speed_y;
+  float phase;
 };
 
 struct FoodState {
@@ -59,8 +74,23 @@ class Aquarium {
   std::vector<SeaweedState> seaweed;
   
   lv_obj_t* bg_obj = nullptr;
-  lv_obj_t* crab_obj = nullptr;
-  lv_obj_t* shark_obj = nullptr;
+  
+  // Crab parts
+  lv_obj_t* crab_body_obj = nullptr;
+  lv_obj_t* crab_claw_l_obj = nullptr;
+  lv_obj_t* crab_claw_r_obj = nullptr;
+  lv_obj_t* crab_eye_l_obj = nullptr;
+  lv_obj_t* crab_eye_r_obj = nullptr;
+  
+  // Jellyfish state
+  JellyfishState jelly;
+  
+  // Shark parts
+  lv_obj_t* shark_body_obj = nullptr;
+  lv_obj_t* shark_tail_obj = nullptr;
+  lv_obj_t* shark_fin_obj = nullptr;
+  lv_obj_t* shark_eye_obj = nullptr;
+  
   lv_obj_t* tap_obj = nullptr;
   
   // Castle parts
@@ -113,8 +143,9 @@ class Aquarium {
       std::vector<lv_obj_t*> seaweed_objs_base,
       std::vector<lv_obj_t*> seaweed_objs_mid,
       std::vector<lv_obj_t*> seaweed_objs_top,
-      lv_obj_t* crab,
-      lv_obj_t* shark,
+      std::vector<lv_obj_t*> crab_parts,
+      std::vector<lv_obj_t*> jelly_parts,
+      std::vector<lv_obj_t*> shark_parts,
       lv_obj_t* tap,
       std::vector<lv_obj_t*> castle_parts,
       std::vector<lv_obj_t*> chest_parts,
@@ -124,8 +155,30 @@ class Aquarium {
       esphome::font::Font* font_small) {
     
     bg_obj = bg;
-    crab_obj = crab;
-    shark_obj = shark;
+    
+    crab_body_obj = crab_parts[0];
+    crab_claw_l_obj = crab_parts[1];
+    crab_claw_r_obj = crab_parts[2];
+    crab_eye_l_obj = crab_parts[3];
+    crab_eye_r_obj = crab_parts[4];
+    
+    // Jellyfish initialization
+    jelly.bell_obj = jelly_parts[0];
+    jelly.tentacle_l = jelly_parts[1];
+    jelly.tentacle_c = jelly_parts[2];
+    jelly.tentacle_r = jelly_parts[3];
+    jelly.x = 240.0f;
+    jelly.y = 100.0f;
+    jelly.base_y = 100.0f;
+    jelly.speed_x = 0.4f;
+    jelly.speed_y = 0.05f;
+    jelly.phase = 0.0f;
+    
+    shark_body_obj = shark_parts[0];
+    shark_tail_obj = shark_parts[1];
+    shark_fin_obj = shark_parts[2];
+    shark_eye_obj = shark_parts[3];
+    
     tap_obj = tap;
     
     // Castle
@@ -187,12 +240,19 @@ class Aquarium {
       {3, 1, lv_color_hex(0xFF69B4), 24, 24, 0.2f, 0.6f}    // MG
     };
     
-    for (size_t i = 0; i < fish_objs.size() && i < init_data.size(); ++i) {
+    for (size_t i = 0; i < (fish_objs.size() / 3) && i < init_data.size(); ++i) {
       auto& data = init_data[i];
       float start_x = 30.0f + (rand() % 360);
       float start_y = 40.0f + (rand() % 180);
+      
+      lv_obj_t* body = fish_objs[i * 3];
+      lv_obj_t* tail = fish_objs[i * 3 + 1];
+      lv_obj_t* eye = fish_objs[i * 3 + 2];
+      
       fish.push_back({
-        fish_objs[i],
+        body,
+        tail,
+        eye,
         start_x,
         start_y,
         data.vx,
@@ -207,15 +267,26 @@ class Aquarium {
         data.color
       });
       
-      // Set depth-based font sizing
-      if (data.depth == 0) {
-        lv_obj_set_style_text_font(fish_objs[i], font_large, LV_PART_MAIN);
-      } else if (data.depth == 1) {
-        lv_obj_set_style_text_font(fish_objs[i], font_medium, LV_PART_MAIN);
+      // Make sure all parts are visible and clear borders
+      lv_obj_clear_flag(body, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_clear_flag(tail, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_clear_flag(eye, LV_OBJ_FLAG_HIDDEN);
+      
+      lv_obj_set_style_border_width(body, 0, LV_PART_MAIN);
+      lv_obj_set_style_border_width(tail, 0, LV_PART_MAIN);
+      lv_obj_set_style_border_width(eye, 0, LV_PART_MAIN);
+      
+      // Apply initial styling colors
+      lv_obj_set_style_bg_color(body, data.color, LV_PART_MAIN);
+      if (data.type == 1) { // Neon Tetra red tail
+        lv_color_t red_tail = lv_color_hex(0xFF1744);
+        if (data.depth == 1) red_tail = lv_color_hex(0xB0122E);
+        else if (data.depth == 2) red_tail = lv_color_hex(0x6E0A1D);
+        lv_obj_set_style_bg_color(tail, red_tail, LV_PART_MAIN);
       } else {
-        lv_obj_set_style_text_font(fish_objs[i], font_small, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(tail, data.color, LV_PART_MAIN);
       }
-      lv_obj_set_style_text_color(fish_objs[i], data.color, LV_PART_MAIN);
+      lv_obj_set_style_bg_color(eye, lv_color_hex(0x111111), LV_PART_MAIN); // black eye pupil
     }
     
     // Initialize bubbles
@@ -271,11 +342,64 @@ class Aquarium {
     }
     
     // Configure crab
-    lv_obj_set_style_text_color(crab_obj, lv_color_hex(0xE74C3C), LV_PART_MAIN); // Coral Red
+    lv_obj_set_style_bg_color(crab_body_obj, lv_color_hex(0xE74C3C), LV_PART_MAIN); // Coral Red
+    lv_obj_set_style_bg_color(crab_claw_l_obj, lv_color_hex(0xE74C3C), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(crab_claw_r_obj, lv_color_hex(0xE74C3C), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(crab_eye_l_obj, lv_color_hex(0x111111), LV_PART_MAIN); // black eye
+    lv_obj_set_style_bg_color(crab_eye_r_obj, lv_color_hex(0x111111), LV_PART_MAIN); // black eye
+    
+    lv_obj_set_style_border_width(crab_body_obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(crab_claw_l_obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(crab_claw_r_obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(crab_eye_l_obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(crab_eye_r_obj, 0, LV_PART_MAIN);
+    
+    lv_obj_set_style_radius(crab_body_obj, 7, LV_PART_MAIN);
+    lv_obj_set_style_radius(crab_claw_l_obj, 5, LV_PART_MAIN);
+    lv_obj_set_style_radius(crab_claw_r_obj, 5, LV_PART_MAIN);
+    lv_obj_set_style_radius(crab_eye_l_obj, 2, LV_PART_MAIN);
+    lv_obj_set_style_radius(crab_eye_r_obj, 2, LV_PART_MAIN);
+
+    // Configure jellyfish styling (Semi-transparent pink/lavender)
+    lv_color_t jelly_pink = lv_color_hex(0xF5B7B1);
+    lv_color_t jelly_purple = lv_color_hex(0xD7BDE2);
+    
+    lv_obj_set_style_bg_color(jelly.bell_obj, jelly_pink, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(jelly.tentacle_l, jelly_purple, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(jelly.tentacle_c, jelly_pink, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(jelly.tentacle_r, jelly_purple, LV_PART_MAIN);
+    
+    lv_obj_set_style_border_width(jelly.bell_obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(jelly.tentacle_l, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(jelly.tentacle_c, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(jelly.tentacle_r, 0, LV_PART_MAIN);
+    
+    lv_obj_set_style_radius(jelly.bell_obj, 8, LV_PART_MAIN);
+    lv_obj_set_style_radius(jelly.tentacle_l, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(jelly.tentacle_c, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(jelly.tentacle_r, 1, LV_PART_MAIN);
     
     // Configure shark
-    lv_obj_set_style_text_color(shark_obj, lv_color_hex(0x7F8C8D), LV_PART_MAIN); // Grey
-    lv_obj_add_flag(shark_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_bg_color(shark_body_obj, lv_color_hex(0x566573), LV_PART_MAIN); // Slate grey-blue
+    lv_obj_set_style_bg_color(shark_tail_obj, lv_color_hex(0x566573), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(shark_fin_obj, lv_color_hex(0x566573), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(shark_eye_obj, lv_color_hex(0xE74C3C), LV_PART_MAIN); // Menacing red eye!
+    
+    lv_obj_set_style_border_width(shark_body_obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(shark_tail_obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(shark_fin_obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(shark_eye_obj, 0, LV_PART_MAIN);
+
+    // Dynamic radius
+    lv_obj_set_style_radius(shark_body_obj, 16, LV_PART_MAIN);
+    lv_obj_set_style_radius(shark_tail_obj, 11, LV_PART_MAIN);
+    lv_obj_set_style_radius(shark_fin_obj, 9, LV_PART_MAIN);
+    lv_obj_set_style_radius(shark_eye_obj, 3, LV_PART_MAIN);
+    
+    lv_obj_add_flag(shark_body_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(shark_tail_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(shark_fin_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(shark_eye_obj, LV_OBJ_FLAG_HIDDEN);
     
     // Configure tap
     lv_obj_set_style_text_color(tap_obj, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
@@ -323,7 +447,9 @@ class Aquarium {
       // Fish strobe colors
       for (size_t i = 0; i < fish.size(); ++i) {
         int fish_hue = (disco_hue + i * 30) % 360;
-        lv_obj_set_style_text_color(fish[i].obj, lv_color_hsv_to_rgb(fish_hue, 95, 95), LV_PART_MAIN);
+        lv_color_t color = lv_color_hsv_to_rgb(fish_hue, 95, 95);
+        lv_obj_set_style_bg_color(fish[i].body_obj, color, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(fish[i].tail_obj, color, LV_PART_MAIN);
       }
     } else {
       // Normal background: Deep deep water blue vertical gradient
@@ -333,7 +459,17 @@ class Aquarium {
       
       // Normal fish colors (using depth-shaded base colors)
       for (auto& f : fish) {
-        lv_obj_set_style_text_color(f.obj, f.base_color, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(f.body_obj, f.base_color, LV_PART_MAIN);
+        if (f.type == 1) {
+          // Neon Tetra has a bright red tail!
+          // Depth-shade the tail color
+          lv_color_t red_tail = lv_color_hex(0xFF1744);
+          if (f.depth == 1) red_tail = lv_color_hex(0xB0122E);
+          else if (f.depth == 2) red_tail = lv_color_hex(0x6E0A1D);
+          lv_obj_set_style_bg_color(f.tail_obj, red_tail, LV_PART_MAIN);
+        } else {
+          lv_obj_set_style_bg_color(f.tail_obj, f.base_color, LV_PART_MAIN);
+        }
       }
     }
     
@@ -513,40 +649,96 @@ class Aquarium {
         f.facing_right = (f.vx > 0);
       }
       
-      // Write new coordinate to screen
-      lv_obj_set_pos(f.obj, (int)f.x, (int)f.y);
+      // Calculate dynamic component sizes
+      float body_w = 0.0f;
+      float body_h = 0.0f;
+      float tail_w = 0.0f;
+      float tail_h = 0.0f;
+      float eye_size = 0.0f;
       
-      // Animate fish character representation
+      // Check puffing for Blowfish
+      bool puffed = false;
+      if (f.type == 2 && f.puff_timer > 0) {
+        f.puff_timer--;
+        puffed = true;
+      }
+      
       if (f.type == 0) { // Goldfish
-        if (f.facing_right) {
-          lv_label_set_text(f.obj, "><((((o>");
-        } else {
-          lv_label_set_text(f.obj, "<o))))><");
-        }
+        body_w = f.width * 0.70f;
+        body_h = f.height;
+        tail_w = f.width * 0.25f;
+        tail_h = f.height * 0.75f;
+        eye_size = f.height * 0.20f;
       } else if (f.type == 1) { // Neon Tetra
-        if (f.facing_right) {
-          lv_label_set_text(f.obj, "><((o>");
-        } else {
-          lv_label_set_text(f.obj, "<o))><");
-        }
+        body_w = f.width * 0.75f;
+        body_h = f.height * 0.85f;
+        tail_w = f.width * 0.25f;
+        tail_h = f.height * 0.65f;
+        eye_size = f.height * 0.20f;
       } else if (f.type == 2) { // Blowfish
-        if (f.puff_timer > 0) {
-          f.puff_timer--;
-          lv_label_set_text(f.obj, "(  O  )"); // Puffed up!
+        if (puffed) {
+          body_w = f.width * 1.10f;
+          body_h = f.height * 1.40f;
+          tail_w = f.width * 0.20f;
+          tail_h = f.height * 0.50f;
+          eye_size = f.height * 0.35f;
         } else {
-          if (f.facing_right) {
-            lv_label_set_text(f.obj, "(o.o)>");
-          } else {
-            lv_label_set_text(f.obj, "<(o.o)");
-          }
+          body_w = f.width * 0.80f;
+          body_h = f.height;
+          tail_w = f.width * 0.20f;
+          tail_h = f.height * 0.50f;
+          eye_size = f.height * 0.25f;
         }
       } else if (f.type == 3) { // Seahorse
+        body_w = f.width * 0.50f;
+        body_h = f.height * 0.90f;
+        tail_w = f.width * 0.30f;
+        tail_h = f.height * 0.40f;
+        eye_size = f.height * 0.15f;
+      }
+      
+      // Update sizes and pill roundings dynamically
+      lv_obj_set_size(f.body_obj, (int)body_w, (int)body_h);
+      lv_obj_set_size(f.tail_obj, (int)tail_w, (int)tail_h);
+      lv_obj_set_size(f.eye_obj, (int)eye_size, (int)eye_size);
+      
+      lv_obj_set_style_radius(f.body_obj, (int)(body_h / 2), LV_PART_MAIN);
+      lv_obj_set_style_radius(f.tail_obj, (int)(tail_h / 2), LV_PART_MAIN);
+      lv_obj_set_style_radius(f.eye_obj, (int)(eye_size / 2), LV_PART_MAIN);
+      
+      // Procedural Positioning based on direction
+      float bx = 0.0f, by = 0.0f;
+      float tx = 0.0f, ty = 0.0f;
+      float ex = 0.0f, ey = 0.0f;
+      
+      if (f.type == 3) { // Seahorse is vertical layout
+        bx = f.x + (f.width - body_w) / 2.0f;
+        by = f.y;
+        tx = bx - 2;
+        ty = f.y + body_h - 2;
+        ex = bx + (f.facing_right ? body_w - eye_size - 2 : 2);
+        ey = f.y + 4;
+      } else { // Horizontal layout
         if (f.facing_right) {
-          lv_label_set_text(f.obj, "S~");
+          bx = f.x + tail_w * 0.7f;
+          by = f.y + (f.height - body_h) / 2.0f;
+          tx = f.x;
+          ty = f.y + (f.height - tail_h) / 2.0f;
+          ex = bx + body_w - eye_size - (body_h * 0.2f);
+          ey = by + (body_h * 0.2f);
         } else {
-          lv_label_set_text(f.obj, "~S");
+          bx = f.x;
+          by = f.y + (f.height - body_h) / 2.0f;
+          tx = f.x + body_w - tail_w * 0.3f;
+          ty = f.y + (f.height - tail_h) / 2.0f;
+          ex = bx + (body_h * 0.2f);
+          ey = by + (body_h * 0.2f);
         }
       }
+      
+      lv_obj_set_pos(f.body_obj, (int)bx, (int)by);
+      lv_obj_set_pos(f.tail_obj, (int)tx, (int)ty);
+      lv_obj_set_pos(f.eye_obj, (int)ex, (int)ey);
     }
     
     // 5. Update Crab (scuttles back and forth at bottom)
@@ -563,13 +755,72 @@ class Aquarium {
       crab_vx = (crab_vx > 0) ? -0.6f : 0.6f;
     }
     
-    // Alternate crab crawling claws
-    if ((int)(crab_x * 0.25f) % 2 == 0) {
-      lv_label_set_text(crab_obj, "(\\[o.o]/)");
-    } else {
-      lv_label_set_text(crab_obj, "(/o.o\\)");
+    // Position crab parts
+    {
+      float cbx = crab_x;
+      float cby = crab_y;
+      
+      // Animate claws
+      float cclx_l = cbx - 6.0f;
+      float ccly_l = cby + 2.0f;
+      float cclx_r = cbx + 20.0f;
+      float ccly_r = cby + 2.0f;
+      
+      if ((int)(crab_x * 0.25f) % 2 == 0) {
+        ccly_l -= 4.0f; // Raise left claw
+      } else {
+        ccly_r -= 4.0f; // Raise right claw
+      }
+      
+      // Position eyes
+      float cex_l = cbx + 5.0f;
+      float cey_l = cby + 3.0f;
+      float cex_r = cbx + 15.0f;
+      float cey_r = cby + 3.0f;
+      
+      lv_obj_set_pos(crab_body_obj, (int)cbx, (int)cby);
+      lv_obj_set_pos(crab_claw_l_obj, (int)cclx_l, (int)ccly_l);
+      lv_obj_set_pos(crab_claw_r_obj, (int)cclx_r, (int)ccly_r);
+      lv_obj_set_pos(crab_eye_l_obj, (int)cex_l, (int)cey_l);
+      lv_obj_set_pos(crab_eye_r_obj, (int)cex_r, (int)cey_r);
     }
-    lv_obj_set_pos(crab_obj, (int)crab_x, (int)crab_y);
+    
+    // 5.5 Update Jellyfish (bobbing & drifting)
+    jelly.phase += 0.05f;
+    jelly.x += jelly.speed_x;
+    jelly.y = jelly.base_y + std::sin(jelly.phase) * 15.0f;
+    
+    // Horizontal drift limits
+    if (jelly.x < 20.0f) {
+      jelly.x = 20.0f;
+      jelly.speed_x = -jelly.speed_x;
+    } else if (jelly.x > 440.0f) {
+      jelly.x = 440.0f;
+      jelly.speed_x = -jelly.speed_x;
+    }
+    
+    // Vertical drift limits (slowly drifts base_y up and down)
+    jelly.base_y += jelly.speed_y;
+    if (jelly.base_y < 40.0f) {
+      jelly.base_y = 40.0f;
+      jelly.speed_y = -jelly.speed_y;
+    } else if (jelly.base_y > 180.0f) {
+      jelly.base_y = 180.0f;
+      jelly.speed_y = -jelly.speed_y;
+    }
+    
+    // Position bell
+    lv_obj_set_pos(jelly.bell_obj, (int)jelly.x, (int)jelly.y);
+    
+    // Swaying tentacles
+    {
+      float sway_sin = std::sin(jelly.phase * 1.5f);
+      float sway_cos = std::cos(jelly.phase * 1.5f);
+      
+      lv_obj_set_pos(jelly.tentacle_l, (int)(jelly.x + 4.0f + sway_sin * 3.0f), (int)(jelly.y + 12.0f));
+      lv_obj_set_pos(jelly.tentacle_c, (int)(jelly.x + 10.0f), (int)(jelly.y + 14.0f + sway_cos * 2.0f));
+      lv_obj_set_pos(jelly.tentacle_r, (int)(jelly.x + 16.0f - sway_sin * 3.0f), (int)(jelly.y + 12.0f));
+    }
     
     // 6. Update Bubbles
     if (bubbler_on && (rand() % 100 < 18)) {
@@ -648,7 +899,27 @@ class Aquarium {
     // 8. Update Shark
     if (shark_active) {
       shark_x += shark_vx;
-      lv_obj_set_pos(shark_obj, (int)shark_x, (int)shark_y);
+      
+      // Position body parts dynamically
+      float bx = 0.0f, tx = 0.0f, fx = 0.0f, ex = 0.0f;
+      float by = shark_y, ty = shark_y + 5.0f, fy = shark_y - 12.0f, ey = shark_y + 8.0f;
+      
+      if (shark_vx > 0) {
+        bx = shark_x + 18.0f;
+        tx = shark_x;
+        fx = bx + 30.0f;
+        ex = bx + 70.0f;
+      } else {
+        bx = shark_x;
+        tx = shark_x + 86.0f;
+        fx = bx + 42.0f;
+        ex = bx + 14.0f;
+      }
+      
+      lv_obj_set_pos(shark_body_obj, (int)bx, (int)by);
+      lv_obj_set_pos(shark_tail_obj, (int)tx, (int)ty);
+      lv_obj_set_pos(shark_fin_obj, (int)fx, (int)fy);
+      lv_obj_set_pos(shark_eye_obj, (int)ex, (int)ey);
       
       // Panic nearby fish
       for (auto& f : fish) {
@@ -666,7 +937,10 @@ class Aquarium {
       // Check offscreen exit
       if ((shark_vx > 0.0f && shark_x > 490.0f) || (shark_vx < 0.0f && shark_x < -180.0f)) {
         shark_active = false;
-        lv_obj_add_flag(shark_obj, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(shark_body_obj, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(shark_tail_obj, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(shark_fin_obj, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(shark_eye_obj, LV_OBJ_FLAG_HIDDEN);
       }
     }
   }
@@ -757,20 +1031,41 @@ class Aquarium {
   void spawn_shark() {
     if (shark_active) return;
     shark_active = true;
-    lv_obj_clear_flag(shark_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(shark_body_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(shark_tail_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(shark_fin_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(shark_eye_obj, LV_OBJ_FLAG_HIDDEN);
     
     // Choose side to spawn and head direction
     if (rand() % 2 == 0) {
       shark_x = -170.0f;
       shark_vx = 2.4f;
-      lv_label_set_text(shark_obj, "><((((((((o>");
     } else {
       shark_x = 490.0f;
       shark_vx = -2.4f;
-      lv_label_set_text(shark_obj, "<o))))))))><");
     }
     shark_y = 50.0f + (rand() % 130);
-    lv_obj_set_pos(shark_obj, (int)shark_x, (int)shark_y);
+    
+    // Position body parts initially
+    float bx = 0.0f, tx = 0.0f, fx = 0.0f, ex = 0.0f;
+    float by = shark_y, ty = shark_y + 5.0f, fy = shark_y - 12.0f, ey = shark_y + 8.0f;
+    
+    if (shark_vx > 0) {
+      bx = shark_x + 18.0f;
+      tx = shark_x;
+      fx = bx + 30.0f;
+      ex = bx + 70.0f;
+    } else {
+      bx = shark_x;
+      tx = shark_x + 86.0f;
+      fx = bx + 42.0f;
+      ex = bx + 14.0f;
+    }
+    
+    lv_obj_set_pos(shark_body_obj, (int)bx, (int)by);
+    lv_obj_set_pos(shark_tail_obj, (int)tx, (int)ty);
+    lv_obj_set_pos(shark_fin_obj, (int)fx, (int)fy);
+    lv_obj_set_pos(shark_eye_obj, (int)ex, (int)ey);
     
     // Immediate panic
     panic_timer = 130;

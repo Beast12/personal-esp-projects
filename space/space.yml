@@ -1,0 +1,342 @@
+esphome:
+  name: space-panel
+  includes:
+    - space.h
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          static std::vector<lv_obj_t*> actor_objs = {
+            id(actor_0), id(actor_1), id(actor_2), id(actor_3),
+            id(actor_4), id(actor_5), id(actor_6), id(actor_7),
+            id(actor_8), id(actor_9), id(actor_10), id(actor_11)
+          };
+          static std::vector<lv_obj_t*> star_objs = {
+            id(star_0), id(star_1), id(star_2), id(star_3),
+            id(star_4), id(star_5), id(star_6), id(star_7),
+            id(star_8), id(star_9), id(star_10), id(star_11),
+            id(star_12), id(star_13), id(star_14), id(star_15)
+          };
+          static std::vector<lv_obj_t*> dust_objs = {
+            id(dust_0), id(dust_1), id(dust_2), id(dust_3),
+            id(dust_4), id(dust_5), id(dust_6), id(dust_7)
+          };
+          static std::vector<lv_obj_t*> crystal_objs = {
+            id(crystal_0), id(crystal_1), id(crystal_2), id(crystal_3), id(crystal_4)
+          };
+          static std::vector<lv_obj_t*> planet_objs = {
+            id(jupiter_body), id(saturn_body), id(saturn_ring), id(earth_body), id(mars_body)
+          };
+          static std::vector<lv_obj_t*> station_objs = {
+            id(station_core), id(station_solar_l), id(station_solar_r)
+          };
+          static std::vector<lv_obj_t*> portal_objs = {
+            id(portal_core), id(portal_ring)
+          };
+          static std::vector<lv_obj_t*> alert_objs = {
+            id(alert_banner), id(alert_label), id(alert_light_l), id(alert_light_r)
+          };
+
+          global_space.setup(
+            id(space_bg),
+            actor_objs,
+            star_objs,
+            dust_objs,
+            crystal_objs,
+            planet_objs,
+            station_objs,
+            portal_objs,
+            alert_objs,
+            id(monster_label),
+            id(warp_indicator),
+            id(f_card_title),
+            id(f_small),
+            id(f_tiny)
+          );
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+ota:
+  - platform: esphome
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+  # Expose actions to Home Assistant
+  services:
+    - service: drop_space_crystals
+      then:
+        - lambda: |-
+            global_space.drop_crystals();
+    - service: gravity_pulse
+      then:
+        - lambda: |-
+            global_space.tap(240, 160);
+    - service: spawn_alien_boss
+      then:
+        - lambda: |-
+            global_space.spawn_monster();
+    - service: show_alert
+      variables:
+        message: string
+        duration_seconds: int
+      then:
+        - lambda: |-
+            global_space.trigger_alert(message, duration_seconds);
+    - service: clear_alert
+      then:
+        - lambda: |-
+            global_space.clear_alert();
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Use IP address directly for cross-subnet resolution
+  use_address: 192.168.1.190
+
+# --- Web Server ---
+web_server:
+  port: 80
+
+# --- JC3248W535C_I Hardware Interfaces ---
+spi:
+  - type: quad
+    clk_pin: 47
+    data_pins: [21, 48, 40, 39]
+
+i2c:
+  - id: i2c_bus
+    sda: 4
+    scl: 8
+
+output:
+  - platform: ledc
+    id: gpio_backlight_pwm
+    pin: 1
+
+light:
+  - platform: monochromatic
+    id: backlight
+    name: Backlight
+    output: gpio_backlight_pwm
+    restore_mode: ALWAYS_ON
+
+display:
+  - platform: qspi_dbi
+    id: lcd
+    dimensions:
+      width: 320
+      height: 480
+    rotation: 90
+    model: CUSTOM
+    data_rate: 40MHz
+    cs_pin:
+      number: 45
+      ignore_strapping_warning: true
+    draw_from_origin: true
+    update_interval: never
+    auto_clear_enabled: false
+
+touchscreen:
+  - platform: axs15231
+    id: touch
+    i2c_id: i2c_bus
+    address: 0x3B
+    transform:
+      swap_xy: true
+      mirror_x: true
+    update_interval: 50ms
+    touch_timeout: 50ms
+    # Tapping screen physically triggers a gravity pulse
+    on_touch:
+      then:
+        - lambda: |-
+            global_space.tap(touch.x, touch.y);
+
+# --- Fonts ---
+font:
+  - file: "gfonts://Roboto"
+    id: f_title
+    size: 28
+  - file: "gfonts://Roboto Mono"
+    id: f_card_title
+    size: 22
+  - file: "gfonts://Roboto"
+    id: f_small
+    size: 14
+  - file: "gfonts://Roboto"
+    id: f_tiny
+    size: 10
+
+# --- Home Assistant Sensors and Switches ---
+sensor:
+  - platform: template
+    name: "Space Scrap Collected"
+    id: space_scrap_count
+    accuracy_decimals: 0
+    unit_of_measurement: "crystals"
+    state_class: total_increasing
+
+switch:
+  - platform: template
+    name: "Wormhole Portal"
+    id: portal_switch
+    optimistic: true
+    restore_mode: ALWAYS_ON
+    turn_on_action:
+      - lambda: |-
+          global_space.set_portal(true);
+    turn_off_action:
+      - lambda: |-
+          global_space.set_portal(false);
+
+  - platform: template
+    name: "Space Supernova Mode"
+    id: supernova_switch
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - lambda: |-
+          global_space.set_supernova(true);
+    turn_off_action:
+      - lambda: |-
+          global_space.set_supernova(false);
+
+# --- LVGL User Interface layout ---
+lvgl:
+  theme:
+    obj:
+      bg_color: 0x030307
+      text_color: 0xEAECEE
+  pages:
+    - id: main_page
+      widgets:
+        # 1. Background
+        - obj:
+            id: space_bg
+            x: 0
+            y: 0
+            width: 100%
+            height: 100%
+            radius: 0
+            border_width: 0
+
+        # 2. Pre-allocated Twinkling Stars
+        - label: { id: star_0, text: ".", x: 0, y: 0 }
+        - label: { id: star_1, text: ".", x: 0, y: 0 }
+        - label: { id: star_2, text: ".", x: 0, y: 0 }
+        - label: { id: star_3, text: ".", x: 0, y: 0 }
+        - label: { id: star_4, text: ".", x: 0, y: 0 }
+        - label: { id: star_5, text: ".", x: 0, y: 0 }
+        - label: { id: star_6, text: ".", x: 0, y: 0 }
+        - label: { id: star_7, text: ".", x: 0, y: 0 }
+        - label: { id: star_8, text: "+", x: 0, y: 0 }
+        - label: { id: star_9, text: "+", x: 0, y: 0 }
+        - label: { id: star_10, text: "+", x: 0, y: 0 }
+        - label: { id: star_11, text: "+", x: 0, y: 0 }
+        - label: { id: star_12, text: "*", x: 0, y: 0 }
+        - label: { id: star_13, text: "*", x: 0, y: 0 }
+        - label: { id: star_14, text: "*", x: 0, y: 0 }
+        - label: { id: star_15, text: "*", x: 0, y: 0 }
+
+        # 3. Vector Planets
+        - obj: { id: jupiter_body, x: 260, y: 65, width: 50, height: 50, radius: 25, border_width: 0 }
+        # Saturn Ring placed behind Saturn Body
+        - obj: { id: saturn_ring, x: 40, y: 54, width: 44, height: 12, radius: 6, border_width: 0 }
+        - obj: { id: saturn_body, x: 47, y: 45, width: 30, height: 30, radius: 15, border_width: 0 }
+        - obj: { id: earth_body, x: 130, y: 190, width: 24, height: 24, radius: 12, border_width: 0 }
+        - obj: { id: mars_body, x: 380, y: 110, width: 16, height: 16, radius: 8, border_width: 0 }
+
+        # 4. Space Station components
+        - obj: { id: station_solar_l, x: 45, y: 241, width: 30, height: 12, radius: 1, border_width: 1 }
+        - obj: { id: station_solar_r, x: 95, y: 241, width: 30, height: 12, radius: 1, border_width: 1 }
+        - obj: { id: station_core, x: 75, y: 230, width: 20, height: 35, radius: 4, border_width: 0 }
+
+        # 5. Wormhole Portal
+        - obj: { id: portal_ring, x: 368, y: 238, width: 44, height: 44, radius: 22, border_width: 2 }
+        - obj: { id: portal_core, x: 372, y: 242, width: 36, height: 36, radius: 18, border_width: 0 }
+
+        # 6. Collected scrap status
+        - label:
+            id: collected_status
+            text: "Scrap: 0"
+            x: 380
+            y: 15
+            text_font: f_small
+            text_color: 0x85929E
+
+        # 7. Pre-allocated Cosmic Dust
+        - label: { id: dust_0, text: "*", x: 0, y: 0, text_font: f_small }
+        - label: { id: dust_1, text: ".", x: 0, y: 0, text_font: f_small }
+        - label: { id: dust_2, text: "+", x: 0, y: 0, text_font: f_small }
+        - label: { id: dust_3, text: "*", x: 0, y: 0, text_font: f_small }
+        - label: { id: dust_4, text: ".", x: 0, y: 0, text_font: f_small }
+        - label: { id: dust_5, text: "+", x: 0, y: 0, text_font: f_small }
+        - label: { id: dust_6, text: "*", x: 0, y: 0, text_font: f_small }
+        - label: { id: dust_7, text: ".", x: 0, y: 0, text_font: f_small }
+
+        # 8. Pre-allocated Space Debris / Energy Crystals
+        - label: { id: crystal_0, text: "◊", x: 0, y: 0, text_font: f_small }
+        - label: { id: crystal_1, text: "◊", x: 0, y: 0, text_font: f_small }
+        - label: { id: crystal_2, text: "◊", x: 0, y: 0, text_font: f_small }
+        - label: { id: crystal_3, text: "◊", x: 0, y: 0, text_font: f_small }
+        - label: { id: crystal_4, text: "◊", x: 0, y: 0, text_font: f_small }
+
+        # 9. Space Actors
+        - label: { id: actor_0, text: "|=I=>", x: 0, y: 0, text_font: f_card_title }
+        - label: { id: actor_1, text: "|=I=>", x: 0, y: 0, text_font: f_card_title }
+        - label: { id: actor_2, text: "|=I=>", x: 0, y: 0, text_font: f_card_title }
+        - label: { id: actor_3, text: "[-o-]", x: 0, y: 0, text_font: f_card_title }
+        - label: { id: actor_4, text: "[-o-]", x: 0, y: 0, text_font: f_card_title }
+        - label: { id: actor_5, text: "[-o-]", x: 0, y: 0, text_font: f_card_title }
+        - label: { id: actor_6, text: "[-o-]", x: 0, y: 0, text_font: f_card_title }
+        - label: { id: actor_7, text: "[o]", x: 0, y: 0, text_font: f_card_title }
+        - label: { id: actor_8, text: "[o]", x: 0, y: 0, text_font: f_card_title }
+        - label: { id: actor_9, text: "[o]", x: 0, y: 0, text_font: f_card_title }
+        - label: { id: actor_10, text: "o-I-o", x: 0, y: 0, text_font: f_card_title }
+        - label: { id: actor_11, text: "o-I-o", x: 0, y: 0, text_font: f_card_title }
+
+        # 10. Space Monster Boss
+        - label:
+            id: monster_label
+            text: "\\/\\(Oo)/\\/"
+            x: -180
+            y: 120
+            text_font: f_title
+
+        # 11. Warp Ripple Indicator
+        - label:
+            id: warp_indicator
+            text: "*WARP*"
+            x: 0
+            y: 0
+            text_font: f_card_title
+
+        # 12. Red Alert banner overlay
+        - obj: { id: alert_banner, x: 40, y: 15, width: 400, height: 48, radius: 8, border_width: 2 }
+        - label: { id: alert_label, text: "", x: 90, y: 22, text_font: f_card_title }
+        - obj: { id: alert_light_l, x: 52, y: 28, width: 22, height: 22, radius: 11, border_width: 0 }
+        - obj: { id: alert_light_r, x: 406, y: 28, width: 22, height: 22, radius: 11, border_width: 0 }
+
+# --- Physics Animation Update Loop ---
+# Runs at 20 frames per second (50ms interval) for smooth movements
+interval:
+  - interval: 50ms
+    then:
+      - lambda: |-
+          // Execute C++ physics and logic update
+          global_space.update(id(space_scrap_count));
+
+          // Refresh collected count status text
+          char buf[32];
+          snprintf(buf, sizeof(buf), "Scrap: %d", global_space.collected_count);
+          lv_label_set_text(id(collected_status), buf);
